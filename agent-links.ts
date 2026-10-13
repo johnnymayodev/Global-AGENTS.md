@@ -426,13 +426,17 @@ function printLinkPlan(plan: LinkPlan, context: Context, heading = "Link plan"):
   if (plan.toCreate.length > 0) {
     console.log("  Create these symlinks (creating missing parent directories if needed):");
     for (const harness of plan.toCreate) {
-      console.log(`    ${harness.target} -> ${context.sourceFile}`);
+      console.log(
+        `    ${displayPath(harness.target, context.home)} -> ${displayPath(context.sourceFile, context.home)}`,
+      );
     }
   }
   if (plan.alreadyLinked.length > 0) {
     console.log("  Already linked:");
     for (const harness of plan.alreadyLinked) {
-      console.log(`    ${harness.target} -> ${context.sourceFile}`);
+      console.log(
+        `    ${displayPath(harness.target, context.home)} -> ${displayPath(context.sourceFile, context.home)}`,
+      );
     }
   }
   if (plan.toCreate.length === 0) console.log("  No symlinks need to be created.");
@@ -444,14 +448,16 @@ function printUnlinkPlan(plan: UnlinkPlan, context: Context, heading = "Unlink p
   if (plan.toRemove.length > 0) {
     console.log("  Remove only these managed symlink entries (not their target files):");
     for (const harness of plan.toRemove) {
-      console.log(`    ${harness.target} -> ${context.sourceFile}`);
+      console.log(
+        `    ${displayPath(harness.target, context.home)} -> ${displayPath(context.sourceFile, context.home)}`,
+      );
     }
   }
   for (const harness of plan.alreadyAbsent) {
-    console.log(`  Already absent: ${harness.target}`);
+    console.log(`  Already absent: ${displayPath(harness.target, context.home)}`);
   }
   for (const harness of plan.untouched) {
-    console.log(`  Leave untouched (not a managed symlink): ${harness.target}`);
+    console.log(`  Leave untouched (not a managed symlink): ${displayPath(harness.target, context.home)}`);
   }
   if (plan.toRemove.length === 0) console.log("  No managed symlinks will be removed.");
   console.log("  Regular files and unrelated symlinks will be left untouched.");
@@ -462,26 +468,32 @@ function printReconcilePlan(plan: ReconcilePlan, context: Context): void {
   if (plan.toCreate.length > 0) {
     console.log("  Create these symlinks (creating missing parent directories if needed):");
     for (const harness of plan.toCreate) {
-      console.log(`    ${harness.target} -> ${context.sourceFile}`);
+      console.log(
+        `    ${displayPath(harness.target, context.home)} -> ${displayPath(context.sourceFile, context.home)}`,
+      );
     }
   }
   if (plan.toRemove.length > 0) {
     console.log("  Remove only these managed symlink entries (after confirmation):");
     for (const harness of plan.toRemove) {
-      console.log(`    ${harness.target} -> ${context.sourceFile}`);
+      console.log(
+        `    ${displayPath(harness.target, context.home)} -> ${displayPath(context.sourceFile, context.home)}`,
+      );
     }
   }
   if (plan.alreadyLinked.length > 0) {
     console.log("  Keep already-linked destinations:");
     for (const harness of plan.alreadyLinked) {
-      console.log(`    ${harness.target} -> ${context.sourceFile}`);
+      console.log(
+        `    ${displayPath(harness.target, context.home)} -> ${displayPath(context.sourceFile, context.home)}`,
+      );
     }
   }
   for (const harness of plan.alreadyAbsent) {
-    console.log(`  Already absent: ${harness.target}`);
+    console.log(`  Already absent: ${displayPath(harness.target, context.home)}`);
   }
   for (const harness of plan.untouched) {
-    console.log(`  Leave untouched (not a managed symlink): ${harness.target}`);
+    console.log(`  Leave untouched (not a managed symlink): ${displayPath(harness.target, context.home)}`);
   }
   if (plan.toCreate.length === 0 && plan.toRemove.length === 0) {
     console.log("  No filesystem changes are planned.");
@@ -517,7 +529,7 @@ function createLinks(targets: Harness[], context: Context): void {
     try {
       const state = targetState(harness.target, context.sourceFile);
       if (state === "managed") {
-        console.log(`already linked ${harness.target} -> ${context.sourceFile}`);
+        console.log(`already linked ${displayPath(harness.target, context.home)}`);
         continue;
       }
       if (state !== "absent") {
@@ -526,7 +538,9 @@ function createLinks(targets: Harness[], context: Context): void {
 
       directoryCreationStarted = true;
       const createdDirectory = mkdirSync(dirname(harness.target), { recursive: true });
-      if (createdDirectory) console.log(`created directory ${createdDirectory}`);
+      if (createdDirectory) {
+        console.log(`created directory ${displayPath(createdDirectory, context.home)}`);
+      }
       try {
         symlinkSync(context.sourceFile, harness.target);
       } catch (error) {
@@ -546,15 +560,20 @@ function createLinks(targets: Harness[], context: Context): void {
       );
       throw error;
     }
-    console.log(`created symlink ${harness.target} -> ${context.sourceFile}`);
+    console.log(`created symlink ${displayPath(harness.target, context.home)}`);
   }
 }
 
-function linkTargets(targets: Harness[], context: Context): void {
+async function linkTargets(targets: Harness[], context: Context): Promise<void> {
   const plan = planLinks(targets, context);
   printLinkPlan(plan, context);
-  if (plan.toCreate.length === 0) console.log("No changes made.");
-  else createLinks(plan.toCreate, context);
+  if (plan.toCreate.length === 0) {
+    console.log("No changes made.");
+    printLinkNotes(targets, context);
+    return;
+  }
+  if (!(await confirmLinkCreation(plan.toCreate))) return;
+  createLinks(plan.toCreate, context);
   printLinkNotes(targets, context);
 }
 
@@ -564,11 +583,13 @@ function removeManagedLinks(targets: Harness[], context: Context): void {
       const state = targetState(harness.target, context.sourceFile);
       if (state === "managed") {
         unlinkSync(harness.target);
-        console.log(`removed managed symlink ${harness.target}`);
+        console.log(`removed managed symlink ${displayPath(harness.target, context.home)}`);
       } else if (state === "absent") {
-        console.log(`left untouched (already absent): ${harness.target}`);
+        console.log(`left untouched (already absent): ${displayPath(harness.target, context.home)}`);
       } else {
-        console.log(`left untouched (no longer a managed symlink): ${harness.target}`);
+        console.log(
+          `left untouched (no longer a managed symlink): ${displayPath(harness.target, context.home)}`,
+        );
       }
     } catch (error) {
       console.error(
@@ -579,10 +600,13 @@ function removeManagedLinks(targets: Harness[], context: Context): void {
   }
 }
 
-async function confirmManagedLinkRemoval(targets: Harness[]): Promise<boolean> {
-  if (targets.length === 0) return true;
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    console.error("error: removal requires interactive confirmation; no changes made");
+async function confirmPlanApproval(
+  prompt: string,
+  confirmationMessage: string,
+  terminalErrorMessage?: string,
+): Promise<boolean> {
+  if (terminalErrorMessage && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+    console.error(terminalErrorMessage);
     process.exitCode = 1;
     return false;
   }
@@ -594,11 +618,7 @@ async function confirmManagedLinkRemoval(targets: Harness[]): Promise<boolean> {
       if (finished) return;
       finished = true;
       readline.close();
-      if (confirmed) {
-        console.log(`Confirmation received; removing ${targets.length} managed symlink(s).`);
-      } else {
-        console.log("Cancelled. No changes made.");
-      }
+      console.log(confirmed ? confirmationMessage : "Cancelled. No changes made.");
       resolveConfirmation(confirmed);
     };
 
@@ -610,10 +630,27 @@ async function confirmManagedLinkRemoval(targets: Harness[]): Promise<boolean> {
     });
     readline.once("SIGINT", () => finish(false));
     readline.question(
-      `Type "yes" to remove the ${targets.length} managed symlink(s) listed above: `,
+      prompt,
       (answer) => finish(answer.trim().toLowerCase() === "yes"),
     );
   });
+}
+
+async function confirmLinkCreation(targets: Harness[]): Promise<boolean> {
+  if (targets.length === 0) return true;
+  return confirmPlanApproval(
+    `Type "yes" to create the ${targets.length} symlink(s) listed above: `,
+    `Confirmation received; creating ${targets.length} symlink(s).`,
+  );
+}
+
+async function confirmManagedLinkRemoval(targets: Harness[]): Promise<boolean> {
+  if (targets.length === 0) return true;
+  return confirmPlanApproval(
+    `Type "yes" to remove the ${targets.length} managed symlink(s) listed above: `,
+    `Confirmation received; removing ${targets.length} managed symlink(s).`,
+    "error: removal requires interactive confirmation; no changes made",
+  );
 }
 
 async function unlinkTargets(targets: Harness[], context: Context): Promise<void> {
@@ -647,7 +684,22 @@ async function reconcileSelection(
     console.log("No changes made.");
     return;
   }
-  if (!(await confirmManagedLinkRemoval(plan.toRemove))) return;
+  const changes: string[] = [];
+  if (plan.toCreate.length > 0) changes.push(`create ${plan.toCreate.length} symlink(s)`);
+  if (plan.toRemove.length > 0) {
+    changes.push(`remove ${plan.toRemove.length} managed symlink(s)`);
+  }
+  const terminalErrorMessage = plan.toRemove.length > 0
+    ? "error: removal requires interactive confirmation; no changes made"
+    : undefined;
+  const summary = changes.join(" and ");
+  if (
+    !(await confirmPlanApproval(
+      `Type "yes" to apply the plan above (${summary}): `,
+      `Confirmation received; applying plan (${summary}).`,
+      terminalErrorMessage,
+    ))
+  ) return;
 
   // Create new links first so a failed addition cannot remove an existing link.
   try {
@@ -714,8 +766,8 @@ function chooseHarnesses(harnesses: Harness[], context: Context): Promise<Set<st
       process.stdout.write("\u001b[2J\u001b[H");
       process.stdout.write(`${renderTable(harnesses, context, initiallySelected, cursor)}\n\n`);
       process.stdout.write(
-        "↑/↓ move  Space toggle  A select all  N select none  Enter apply  Esc cancel\n" +
-          "Managed links are removed only after showing a plan and receiving confirmation.",
+        "↑/↓ move  Space toggle  A select all  N select none  Enter review  Esc cancel\n" +
+          "Changes are applied only after reviewing and confirming the plan.",
       );
     };
 
@@ -800,7 +852,7 @@ function printUsage(): void {
       "  agent-links                 choose detected harnesses interactively",
       "  agent-links --all           choose from all supported harnesses",
       "  agent-links --list [--all]  print the detected (or all) harnesses",
-      "  agent-links link            preview and link all supported harnesses",
+      "  agent-links link            preview and confirm linking all supported harnesses",
       "  agent-links unlink          preview and confirm removal of managed links",
     ].join("\n"),
   );
@@ -844,7 +896,7 @@ export async function runAgentLinks(args: string[] = process.argv.slice(2)): Pro
 
   if (args.length === 1 && args[0] === "link") {
     if (!(await ensureSourceFile(context))) return;
-    linkTargets(context.harnesses, context);
+    await linkTargets(context.harnesses, context);
     return;
   }
 

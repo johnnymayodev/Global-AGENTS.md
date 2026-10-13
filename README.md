@@ -47,4 +47,5 @@ installation or `bun install` is needed.
    If `~/.config/agents/AGENTS.md` does not exist, the CLI asks whether to copy
    an existing instructions file (enter its path) or create a blank one.
 
-3. Use the arrow keys to move, Space to select harnesses, and Enter to apply.
+3. Use the arrow keys to move, Space to select harnesses, and Enter to review the
+   plan; type `yes` to apply it.

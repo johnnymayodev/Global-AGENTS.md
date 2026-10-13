@@ -116,18 +116,39 @@ test("launcher prefers Bun, resolves bin symlinks, and falls back to Node", () =
   }
 });
 
-test("creates a blank canonical instructions file when selected", () => {
+test("creates a blank canonical instructions file and waits for link approval", () => {
   const home = mkdtempSync(join(tmpdir(), "agent-links-blank-"));
   const sourceFile = join(home, ".config", "agents", "AGENTS.md");
+  const opencodeTarget = join(home, ".config", "opencode", "AGENTS.md");
+  const claudeTarget = join(home, ".claude", "CLAUDE.md");
 
   try {
-    const result = runLinkSetup(home, "2\n");
+    const setup = runLinkSetup(home, "2\n");
+
+    expect(setup.status).toBe(0);
+    expect(setup.stdout).toContain("No shared instructions file found");
+    expect(setup.stdout).toContain("Created blank instructions file");
+    expect(existsSync(opencodeTarget)).toBe(false);
+
+    const result = runLinkSetup(home, "yes\n");
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("No shared instructions file found");
-    expect(result.stdout).toContain("Created blank instructions file");
+    expect(result.stdout).toContain("~/.config/opencode/AGENTS.md -> ~/.config/agents/AGENTS.md");
+    expect(result.stdout).toContain("~/.claude/CLAUDE.md -> ~/.config/agents/AGENTS.md");
+    expect(result.stdout).toContain('Type "yes" to create the 6 symlink(s) listed above:');
+    expect(result.stdout).toContain("Confirmation received; creating 6 symlink(s).");
+    expect(result.stdout).toContain("created symlink ~/.config/opencode/AGENTS.md");
+    expect(result.stdout).toContain("created symlink ~/.claude/CLAUDE.md");
+    expect(result.stdout).not.toContain(`created symlink ${opencodeTarget} ->`);
+    expect(result.stdout).not.toContain(`created symlink ${claudeTarget} ->`);
+    expect(result.stdout.indexOf("Link plan:")).toBeLessThan(
+      result.stdout.indexOf('Type "yes" to create the 6 symlink(s) listed above:'),
+    );
+    expect(result.stdout.indexOf('Type "yes" to create the 6 symlink(s) listed above:')).toBeLessThan(
+      result.stdout.indexOf("created symlink ~/.config/opencode/AGENTS.md"),
+    );
     expect(readFileSync(sourceFile, "utf8")).toBe("");
-    expect(readlinkSync(join(home, ".config", "opencode", "AGENTS.md"))).toBe(sourceFile);
+    expect(readlinkSync(opencodeTarget)).toBe(sourceFile);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
@@ -143,18 +164,22 @@ test("copies a selected existing instructions file to the canonical location", (
     mkdirSync(join(home, "notes"));
     writeFileSync(selectedFile, contents);
 
-    const result = runLinkSetup(home, `1\n${selectedFile}\n`);
+    const setup = runLinkSetup(home, `1\n${selectedFile}\n`);
+
+    expect(setup.status).toBe(0);
+    expect(setup.stdout).toContain(`Created ${sourceFile} from ${selectedFile}`);
+    expect(readFileSync(sourceFile, "utf8")).toBe(contents);
+
+    const result = runLinkSetup(home, "yes\n");
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain(`Created ${sourceFile} from ${selectedFile}`);
-    expect(readFileSync(sourceFile, "utf8")).toBe(contents);
     expect(readlinkSync(join(home, ".config", "opencode", "AGENTS.md"))).toBe(sourceFile);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
 });
 
-test("does not prompt or overwrite an existing canonical instructions file", () => {
+test("does not prompt to create a canonical instructions file that already exists", () => {
   const home = mkdtempSync(join(tmpdir(), "agent-links-existing-"));
   const sourceFile = join(home, ".config", "agents", "AGENTS.md");
   const contents = "# Keep these instructions\n";
@@ -168,6 +193,28 @@ test("does not prompt or overwrite an existing canonical instructions file", () 
     expect(result.status).toBe(0);
     expect(result.stdout).not.toContain("No shared instructions file found");
     expect(readFileSync(sourceFile, "utf8")).toBe(contents);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("declining the link plan leaves destinations untouched", () => {
+  const home = mkdtempSync(join(tmpdir(), "agent-links-decline-"));
+  const sourceFile = join(home, ".config", "agents", "AGENTS.md");
+  const opencodeTarget = join(home, ".config", "opencode", "AGENTS.md");
+  const claudeTarget = join(home, ".claude", "CLAUDE.md");
+
+  try {
+    mkdirSync(join(home, ".config", "agents"), { recursive: true });
+    writeFileSync(sourceFile, "# Shared instructions\n");
+
+    const result = runLinkSetup(home, "no\n");
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Type "yes" to create the 6 symlink(s) listed above:');
+    expect(result.stdout).toContain("Cancelled. No changes made.");
+    expect(existsSync(opencodeTarget)).toBe(false);
+    expect(existsSync(claudeTarget)).toBe(false);
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
