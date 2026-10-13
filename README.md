@@ -12,9 +12,7 @@ overwrite existing files or unrelated symlinks.
 Run this project without cloning:
 
 ```sh
-repo="johnnymayodev/Global-AGENTS.md"
-curl -fsSL "https://raw.githubusercontent.com/${repo}/main/run.sh" |
-  bash -s -- "$repo"
+curl -fsSL "https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/main/run.sh" | bash -s -- johnnymayodev/Global-AGENTS.md
 ```
 
 The runner downloads `agent-links.ts` from that repository's `main` branch into
