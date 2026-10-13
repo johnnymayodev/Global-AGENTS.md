@@ -1,0 +1,33 @@
+{
+  "name": "agent-links",
+  "version": "0.1.0",
+  "description": "Link one shared AGENTS.md into supported AI coding harnesses.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "bun": ">=1.4.0"
+  },
+  "exports": {
+    ".": "./agent-links.ts"
+  },
+  "types": "./agent-links.ts",
+  "bin": {
+    "agent-links": "./agent-links.ts"
+  },
+  "files": [
+    "agent-links",
+    "agent-links.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "bun agent-links.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "check": "bun run typecheck && bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "typescript": "^7.0.2"
+  }
+}

@@ -1,40 +1,38 @@
-# Global AGENTS.md
+# agent-links
 
-Keep shared personal instructions in `~/.config/agents/AGENTS.md`, then use
-`agent-links` to link that file into the supported harnesses' global
-instruction locations.
+`agent-links` creates symlinks from one shared `~/.config/agents/AGENTS.md` to
+the global instruction locations used by supported AI coding harnesses. It
+detects installed harnesses and does not overwrite existing files or unrelated
+symlinks.
 
-```sh
-mkdir -p ~/.config/agents
-$EDITOR ~/.config/agents/AGENTS.md
-./agent-links link
-```
+## Run from GitHub
 
-The script links to:
-
-- OpenCode: `~/.config/opencode/AGENTS.md`
-- Codex: `${CODEX_HOME:-~/.codex}/AGENTS.md`
-- Pi: `~/.pi/agent/AGENTS.md`
-- OMP: `~/.omp/agent/AGENTS.md` by default
-- Hermes Agent: `${HERMES_HOME:-~/.hermes}/AGENTS.md`
-- Claude Code: `~/.claude/CLAUDE.md`
-
-Set `CODEX_HOME` or `HERMES_HOME` when those tools use a non-default home. OMP
-profile and directory overrides are honored through `OMP_PROFILE` (or legacy
-`PI_PROFILE`), `PI_CONFIG_DIR`, and `PI_CODING_AGENT_DIR`. `link` is safe to
-rerun; it checks all destinations first and refuses to overwrite existing
-files or unrelated symlinks. `unlink` removes only symlinks whose stored target
-exactly matches the canonical file path and leaves everything else alone.
+For a public repository, run without cloning by replacing `OWNER/REPO` with its
+GitHub owner and repository name:
 
 ```sh
-./agent-links unlink
+repo="OWNER/REPO"
+curl -fsSL "https://raw.githubusercontent.com/${repo}/main/run.sh" |
+  bash -s -- "$repo"
 ```
 
-Codex prefers a non-empty `AGENTS.override.md` over `AGENTS.md`. Claude Code's
-Cowork desktop mode may also skip a `CLAUDE.md` symlink that points outside the
-session workspace; the Claude Code link is intended for local CLI sessions.
+The runner downloads `agent-links.ts` from that repository's `main` branch into
+a temporary directory, runs it with Bun, then removes the temporary file. It
+reconnects stdin to `/dev/tty` when available so the interactive picker works
+when the runner itself is piped to Bash. Bun and curl must be installed.
 
-Hermes Agent's current documentation guarantees global `SOUL.md` loading from
-`HERMES_HOME`, but documents `AGENTS.md` as project context. The script creates
-the conventional `HERMES_HOME/AGENTS.md` link, but Hermes will only load it
-globally in versions that support that behavior.
+## Usage
+
+Bun is required. No package installation or `bun install` is needed.
+
+1. Download or clone this repository.
+2. From the repository directory, run:
+
+   ```sh
+   bun agent-links.ts
+   ```
+
+   If `~/.config/agents/AGENTS.md` does not exist, the CLI asks whether to copy
+   an existing instructions file (enter its path) or create a blank one.
+
+3. Use the arrow keys to move, Space to select harnesses, and Enter to apply.

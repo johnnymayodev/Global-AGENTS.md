@@ -1,121 +1,16 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
-home="${HOME:?HOME must be set}"
-[[ "$home" == /* ]] || {
-  printf 'error: HOME must be an absolute path\n' >&2
-  exit 1
-}
-
-source_file="$home/.config/agents/AGENTS.md"
-codex_home="${CODEX_HOME:-$home/.codex}"
-if [[ "$codex_home" != /* ]]; then
-  codex_home="$PWD/$codex_home"
-fi
-hermes_home="${HERMES_HOME:-$home/.hermes}"
-if [[ "$hermes_home" != /* ]]; then
-  hermes_home="$PWD/$hermes_home"
-fi
-
-omp_config_root="${PI_CONFIG_DIR:-.omp}"
-if [[ "$omp_config_root" != /* ]]; then
-  omp_config_root="$home/$omp_config_root"
-fi
-if [[ ${OMP_PROFILE+x} ]]; then
-  omp_profile="$OMP_PROFILE"
-else
-  omp_profile="${PI_PROFILE:-}"
-fi
-
-if [[ -n "$omp_profile" ]]; then
-  omp_agent_dir="$omp_config_root/profiles/$omp_profile/agent"
-elif [[ -n "${PI_CODING_AGENT_DIR:-}" ]]; then
-  omp_agent_dir="$PI_CODING_AGENT_DIR"
-  if [[ "$omp_agent_dir" != /* ]]; then
-    omp_agent_dir="$PWD/$omp_agent_dir"
-  fi
-else
-  omp_agent_dir="$omp_config_root/agent"
-fi
-
-targets=(
-  "$home/.config/opencode/AGENTS.md"
-  "$codex_home/AGENTS.md"
-  "$home/.pi/agent/AGENTS.md"
-  "$omp_agent_dir/AGENTS.md"
-  "$hermes_home/AGENTS.md"
-  "$home/.claude/CLAUDE.md"
-)
-
-die() {
-  printf 'error: %s\n' "$*" >&2
-  exit 1
-}
-
-usage() {
-  printf 'usage: %s link|unlink\n' "${0##*/}" >&2
-  exit 2
-}
-
-is_managed_link() {
-  [[ -L "$1" ]] && [[ "$(readlink "$1")" == "$source_file" ]]
-}
-
-link_targets() {
-  [[ -f "$source_file" ]] || die "missing canonical instructions file: $source_file"
-
-  # Validate every destination before changing any of them.
-  for target in "${targets[@]}"; do
-    if [[ -L "$target" ]]; then
-      is_managed_link "$target" || die "refusing to replace unrelated symlink: $target"
-    elif [[ -e "$target" ]]; then
-      die "refusing to replace existing path: $target"
-    fi
-  done
-
-  for target in "${targets[@]}"; do
-    if is_managed_link "$target"; then
-      printf 'already linked %s -> %s\n' "$target" "$source_file"
-      continue
-    fi
-
-    mkdir -p "$(dirname "$target")"
-    ln -s "$source_file" "$target"
-    printf 'linked %s -> %s\n' "$target" "$source_file"
-  done
-
-  if [[ -s "$codex_home/AGENTS.override.md" ]]; then
-    printf 'note: Codex prefers its non-empty %s over AGENTS.md\n' \
-      "$codex_home/AGENTS.override.md" >&2
-  fi
-
-  printf '%s\n' \
-    'note: Hermes global AGENTS.md loading depends on Hermes version;' \
-    '      current docs guarantee global SOUL.md, not AGENTS.md' >&2
-}
-
-unlink_targets() {
-  for target in "${targets[@]}"; do
-    if is_managed_link "$target"; then
-      rm "$target"
-      printf 'removed %s\n' "$target"
-    elif [[ -e "$target" || -L "$target" ]]; then
-      printf 'left untouched (not a managed symlink): %s\n' "$target"
-    else
-      printf 'already absent: %s\n' "$target"
-    fi
-  done
-}
-
-[[ $# -eq 1 ]] || usage
-case "$1" in
-  link)
-    link_targets
-    ;;
-  unlink)
-    unlink_targets
-    ;;
-  *)
-    usage
-    ;;
+script_path="$0"
+case "$script_path" in
+  */*) ;;
+  *) script_path="$(command -v "$script_path")" ;;
 esac
+script_dir="$(CDPATH= cd -P "$(dirname "$script_path")" && pwd)"
+
+if ! command -v bun >/dev/null 2>&1; then
+  printf 'error: Bun is required to run agent-links (https://bun.sh/).\n' >&2
+  exit 127
+fi
+
+exec bun run "$script_dir/agent-links.ts" "$@"
