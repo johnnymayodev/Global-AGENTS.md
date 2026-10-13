@@ -7,6 +7,7 @@ import {
   copyFileSync,
   lstatSync,
   mkdirSync,
+  realpathSync,
   readlinkSync,
   statSync,
   symlinkSync,
@@ -22,6 +23,7 @@ import {
   resolve,
   sep,
 } from "node:path";
+import { fileURLToPath } from "node:url";
 
 type Harness = {
   id: string;
@@ -855,7 +857,10 @@ export async function runAgentLinks(args: string[] = process.argv.slice(2)): Pro
   process.exitCode = 2;
 }
 
-if (import.meta.main) {
+if (
+  process.argv[1] &&
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+) {
   runAgentLinks().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`error: ${message}`);

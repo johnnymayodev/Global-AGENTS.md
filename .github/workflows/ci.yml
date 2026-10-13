@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  bun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: ./agent-links --help
+
+  node:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Build with Node
+        run: |
+          node_bin="$(dirname "$(command -v node)")"
+          PATH="$node_bin:/usr/bin:/bin" sh build.sh
+      - name: Run TypeScript entry point
+        run: node agent-links.ts --help
+      - name: Run built package entry point
+        run: node dist/agent-links.js --help
+      - name: Run launcher with Node fallback
+        run: |
+          node_bin="$(dirname "$(command -v node)")"
+          PATH="$node_bin:/usr/bin:/bin" ./agent-links --help
+      - name: Pack and run the Node package
+        run: |
+          node_bin="$(dirname "$(command -v node)")"
+          PATH="$node_bin:/usr/bin:/bin" npm pack --pack-destination "$RUNNER_TEMP"
+          tarball="$(find "$RUNNER_TEMP" -maxdepth 1 -name 'global-agents-md-*.tgz' -print -quit)"
+          PATH="$node_bin:/usr/bin:/bin" npm install --prefix "$RUNNER_TEMP/node-consumer" --ignore-scripts "$tarball"
+          PATH="$node_bin:/usr/bin:/bin" "$RUNNER_TEMP/node-consumer/node_modules/.bin/agent-links" --help
+          (cd "$RUNNER_TEMP/node-consumer" && node --input-type=module -e 'import { runAgentLinks } from "global-agents-md"; if (typeof runAgentLinks !== "function") process.exitCode = 1;')

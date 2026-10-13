@@ -18,19 +18,30 @@ curl -fsSL "https://raw.githubusercontent.com/${repo}/main/run.sh" |
 ```
 
 The runner downloads `agent-links.ts` from that repository's `main` branch into
-a temporary directory, runs it with Bun, then removes the temporary file. It
-reconnects stdin to `/dev/tty` when available so the interactive picker works
-when the runner itself is piped to Bash. Bun and curl must be installed.
+a temporary directory, runs it with Bun when available or Node otherwise, then
+removes the temporary file. It reconnects stdin to `/dev/tty` when available so
+the interactive picker works when the runner itself is piped to Bash. Bun 1.4+
+or Node.js 22.18+, 24.x, or 26.x and curl must be installed.
 
 ## Usage
 
-Bun is required. No package installation or `bun install` is needed.
+Bun is preferred; Node.js 22.18+, 24.x, and 26.x are also supported. No package
+installation or `bun install` is needed.
 
 1. Download or clone [Global AGENTS.md from GitHub](https://github.com/johnnymayodev/Global-AGENTS.md).
-2. From the repository directory, run:
+2. From the repository directory, run the launcher (Bun is used when installed;
+   otherwise it falls back to Node):
+
+   ```sh
+   ./agent-links
+   ```
+
+   Alternatively, invoke the TypeScript entry point directly:
 
    ```sh
    bun agent-links.ts
+   # or
+   node agent-links.ts
    ```
 
    If `~/.config/agents/AGENTS.md` does not exist, the CLI asks whether to copy

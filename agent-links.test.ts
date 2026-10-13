@@ -1,16 +1,19 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readlinkSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join, relative } from "node:path";
 import { runAgentLinks } from "./agent-links.ts";
 
 function runLinkSetup(home: string, input: string) {
@@ -30,6 +33,11 @@ function runLinkSetup(home: string, input: string) {
   });
 }
 
+function writeExecutable(path: string, contents: string): void {
+  writeFileSync(path, contents);
+  chmodSync(path, 0o755);
+}
+
 test("exports a programmatic CLI entry point", async () => {
   let output = "";
   const originalLog = console.log;
@@ -44,6 +52,68 @@ test("exports a programmatic CLI entry point", async () => {
   }
 
   expect(output).toContain("agent-links --all");
+});
+
+test("launcher prefers Bun, resolves bin symlinks, and falls back to Node", () => {
+  const tempDir = mkdtempSync(join(tmpdir(), "agent-links-launcher-"));
+  const launcher = join(import.meta.dir, "agent-links");
+  const packageDir = join(tempDir, "package");
+  const bothBinDir = join(tempDir, "both");
+  const nodeBinDir = join(tempDir, "node-only");
+  const bunCapturePath = join(tempDir, "bun-capture");
+  const bothNodeCapturePath = join(tempDir, "both-node-capture");
+  const fallbackNodeCapturePath = join(tempDir, "fallback-node-capture");
+
+  try {
+    mkdirSync(packageDir);
+    mkdirSync(bothBinDir);
+    mkdirSync(nodeBinDir);
+    const packageLauncher = join(packageDir, "agent-links");
+    copyFileSync(launcher, packageLauncher);
+    chmodSync(packageLauncher, 0o755);
+    writeExecutable(
+      join(bothBinDir, "bun"),
+      '#!/bin/sh\nprintf bun > "$BUN_CAPTURE"\n',
+    );
+    writeExecutable(
+      join(bothBinDir, "node"),
+      '#!/bin/sh\nprintf node > "$NODE_CAPTURE"\n',
+    );
+    writeExecutable(
+      join(nodeBinDir, "node"),
+      '#!/bin/sh\nprintf node > "$NODE_CAPTURE"\n',
+    );
+    symlinkSync(relative(bothBinDir, packageLauncher), join(bothBinDir, "agent-links"));
+    symlinkSync(relative(nodeBinDir, packageLauncher), join(nodeBinDir, "agent-links"));
+
+    const bunPreferred = spawnSync(join(bothBinDir, "agent-links"), ["--help"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bothBinDir}${delimiter}/usr/bin${delimiter}/bin`,
+        BUN_CAPTURE: bunCapturePath,
+        NODE_CAPTURE: bothNodeCapturePath,
+      },
+    });
+
+    expect(bunPreferred.status).toBe(0);
+    expect(readFileSync(bunCapturePath, "utf8")).toBe("bun");
+    expect(existsSync(bothNodeCapturePath)).toBe(false);
+
+    const nodeFallback = spawnSync(join(nodeBinDir, "agent-links"), ["--help"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${nodeBinDir}${delimiter}/usr/bin${delimiter}/bin`,
+        NODE_CAPTURE: fallbackNodeCapturePath,
+      },
+    });
+
+    expect(nodeFallback.status).toBe(0);
+    expect(readFileSync(fallbackNodeCapturePath, "utf8")).toBe("node");
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("creates a blank canonical instructions file when selected", () => {

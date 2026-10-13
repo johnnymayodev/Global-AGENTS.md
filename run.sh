@@ -22,8 +22,12 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 127
 fi
 
-if ! command -v bun >/dev/null 2>&1; then
-  printf 'error: Bun is required to run agent-links (https://bun.sh/)\n' >&2
+if command -v bun >/dev/null 2>&1; then
+  runtime=bun
+elif command -v node >/dev/null 2>&1; then
+  runtime=node
+else
+  printf 'error: Bun 1.4+ or Node.js 22.18+, 24.x, or 26.x is required to run agent-links\n' >&2
   exit 127
 fi
 
@@ -34,8 +38,16 @@ curl --fail --location --silent --show-error \
   "https://raw.githubusercontent.com/${repository}/main/agent-links.ts" \
   --output "$temp_dir/agent-links.ts"
 
+run_agent_links() {
+  if [ "$runtime" = bun ]; then
+    bun run "$temp_dir/agent-links.ts" "$@"
+  else
+    node "$temp_dir/agent-links.ts" "$@"
+  fi
+}
+
 if [ -t 1 ] && [ -r /dev/tty ]; then
-  bun run "$temp_dir/agent-links.ts" "$@" </dev/tty
+  run_agent_links "$@" </dev/tty
 else
-  bun run "$temp_dir/agent-links.ts" "$@"
+  run_agent_links "$@"
 fi

@@ -6,11 +6,27 @@ case "$script_path" in
   */*) ;;
   *) script_path="$(command -v "$script_path")" ;;
 esac
+while [ -L "$script_path" ]; do
+  script_dir="$(CDPATH= cd -P "$(dirname "$script_path")" && pwd)"
+  link_target="$(readlink "$script_path")"
+  case "$link_target" in
+    /*) script_path="$link_target" ;;
+    *) script_path="$script_dir/$link_target" ;;
+  esac
+done
+
 script_dir="$(CDPATH= cd -P "$(dirname "$script_path")" && pwd)"
 
-if ! command -v bun >/dev/null 2>&1; then
-  printf 'error: Bun is required to run agent-links (https://bun.sh/).\n' >&2
-  exit 127
+if command -v bun >/dev/null 2>&1; then
+  exec bun run "$script_dir/agent-links.ts" "$@"
 fi
 
-exec bun run "$script_dir/agent-links.ts" "$@"
+if command -v node >/dev/null 2>&1; then
+  if [ -f "$script_dir/dist/agent-links.js" ]; then
+    exec node "$script_dir/dist/agent-links.js" "$@"
+  fi
+  exec node "$script_dir/agent-links.ts" "$@"
+fi
+
+printf 'error: Bun 1.4+ or Node.js 22.18+, 24.x, or 26.x is required to run agent-links\n' >&2
+exit 127
