@@ -1,9 +1,17 @@
 {
-  "name": "agent-links",
+  "name": "global-agents-md",
   "version": "0.1.0",
   "description": "Link one shared AGENTS.md into supported AI coding harnesses.",
   "type": "module",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johnnymayodev/Global-AGENTS.md.git"
+  },
+  "homepage": "https://github.com/johnnymayodev/Global-AGENTS.md#readme",
+  "bugs": {
+    "url": "https://github.com/johnnymayodev/Global-AGENTS.md/issues"
+  },
   "engines": {
     "bun": ">=1.4.0"
   },

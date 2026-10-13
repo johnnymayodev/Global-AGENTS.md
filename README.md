@@ -1,17 +1,18 @@
-# agent-links
+# Global AGENTS.md
 
-`agent-links` creates symlinks from one shared `~/.config/agents/AGENTS.md` to
-the global instruction locations used by supported AI coding harnesses. It
-detects installed harnesses and does not overwrite existing files or unrelated
-symlinks.
+Shared `AGENTS.md` linked across supported AI coding harnesses.
+
+`Global AGENTS.md` provides the `agent-links` CLI, which creates symlinks from
+one shared `~/.config/agents/AGENTS.md` to the global instruction locations used
+by supported AI coding harnesses. It detects installed harnesses and does not
+overwrite existing files or unrelated symlinks.
 
 ## Run from GitHub
 
-For a public repository, run without cloning by replacing `OWNER/REPO` with its
-GitHub owner and repository name:
+Run this project without cloning:
 
 ```sh
-repo="OWNER/REPO"
+repo="johnnymayodev/Global-AGENTS.md"
 curl -fsSL "https://raw.githubusercontent.com/${repo}/main/run.sh" |
   bash -s -- "$repo"
 ```
@@ -25,7 +26,7 @@ when the runner itself is piped to Bash. Bun and curl must be installed.
 
 Bun is required. No package installation or `bun install` is needed.
 
-1. Download or clone this repository.
+1. Download or clone [Global AGENTS.md from GitHub](https://github.com/johnnymayodev/Global-AGENTS.md).
 2. From the repository directory, run:
 
    ```sh
