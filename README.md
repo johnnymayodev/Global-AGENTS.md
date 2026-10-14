@@ -9,17 +9,33 @@ overwrite existing files or unrelated symlinks.
 
 ## Run from GitHub
 
-Run this project without cloning:
+Run the one-shot standalone CLI without cloning or installing Bun/Node:
 
 ```sh
-curl -fsSL "https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/main/run.sh" | bash -s -- johnnymayodev/Global-AGENTS.md
+curl -fsSL https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/main/run.sh | bash
 ```
 
-The runner downloads `agent-links.ts` from that repository's `main` branch into
-a temporary directory, runs it with Bun when available or Node otherwise, then
-removes the temporary file. It reconnects stdin to `/dev/tty` when available so
-the interactive picker works when the runner itself is piped to Bash. Bun 1.4+
-or Node.js 22.18+, 24.x, or 26.x and curl must be installed.
+The runner downloads the version-pinned standalone executable and matching
+SHA-256 checksum from the corresponding GitHub release, verifies the executable
+before running it, and removes its private temporary directory on exit. It
+preserves the current working directory and forwards all arguments to the CLI.
+When a controlling terminal is available, it reconnects stdin to `/dev/tty`, so
+the arrow-key/Space picker, plan review, and explicit confirmation work when the
+shell script itself is piped to Bash. This is a one-shot run: it does not install
+the CLI, change `PATH`, modify shell profiles, or use `sudo`.
+
+The bootstrap requires `curl`, `mktemp`, a SHA-256 utility (`sha256sum` or
+`shasum`), and the usual system shell utilities. It does not require Bun or
+Node.js. Supported releases are macOS and glibc-based Linux on x64 and ARM64;
+WSL uses the Linux assets. Linux builds target **glibc 2.35 or newer** (Ubuntu
+22.04 baseline). musl-based distributions such as Alpine and native Windows are
+not supported. The embedded Bun runtime makes each downloaded executable large.
+
+The checksum detects a corrupted or mismatched download; because both files are
+served by the same GitHub release, it is not an independent signature and does
+not protect against a compromised release account or release itself. The
+standalone runner is pinned to `v0.1.0`; the release workflow checks that its
+version matches `package.json` before building and publishing assets.
 
 ## Usage
 
@@ -27,7 +43,7 @@ Bun is preferred; Node.js 22.18+, 24.x, and 26.x are also supported. No package
 installation or `bun install` is needed.
 
 1. Download or clone [Global AGENTS.md from GitHub](https://github.com/johnnymayodev/Global-AGENTS.md).
-2. From the repository directory, run the launcher (Bun is used when installed;
+2. From the repository directory, run the local launcher (Bun is used when installed;
    otherwise it falls back to Node):
 
    ```sh
@@ -46,4 +62,28 @@ installation or `bun install` is needed.
    an existing instructions file (enter its path) or create a blank one.
 
 3. Use the arrow keys to move, Space to select harnesses, and Enter to review the
-   plan; type `yes` to apply it.
+   plan; type `yes` to apply it. The one-shot runner opens this same picker by
+   default.
+
+## Standalone builds and releases
+
+Build a standalone executable for the current machine (Bun 1.4+ is required only
+for building):
+
+```sh
+sh build-standalone.sh
+```
+
+The optional target and output arguments are intended for builds on matching
+native runners. For example:
+
+```sh
+sh build-standalone.sh bun-linux-x64 dist/agent-links-linux-x64
+```
+
+The release workflow builds the four supported
+targets on native GitHub-hosted runners, creates per-platform SHA-256 checksum
+files, and attaches both files to the version tag's GitHub release. Before a
+release, update `package.json` and the pinned `version` in `run.sh` together,
+then push the matching `vX.Y.Z` tag. The bootstrap will not work for a version
+until its release assets exist.
