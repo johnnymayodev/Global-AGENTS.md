@@ -85,4 +85,5 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
+            ${{ startsWith(github.ref_name, 'v0.') && '--prerelease' || '' }} \
             artifacts/*
