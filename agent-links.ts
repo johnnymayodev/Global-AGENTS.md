@@ -909,13 +909,30 @@ export async function runAgentLinks(args: string[] = process.argv.slice(2)): Pro
   process.exitCode = 2;
 }
 
-if (
-  process.argv[1] &&
-  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
-) {
-  runAgentLinks().catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`error: ${message}`);
-    process.exitCode = 1;
-  });
+const entryModule =
+  process.argv[1] === undefined
+    ? undefined
+    : (() => {
+        // In a Bun-compiled executable the entry module lives at the virtual
+        // $bunfs path, which does not exist on disk; run only when both paths
+        // resolve to the same real file.
+        try {
+          return realpathSync(fileURLToPath(import.meta.url));
+        } catch {
+          return undefined;
+        }
+      })();
+
+if (process.argv[1] !== undefined && entryModule !== undefined) {
+  try {
+    if (realpathSync(process.argv[1]) === entryModule) {
+      runAgentLinks().catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`error: ${message}`);
+        process.exitCode = 1;
+      });
+    }
+  } catch {
+    // Entry detection is best-effort; programmatic importers must not fail here.
+  }
 }
