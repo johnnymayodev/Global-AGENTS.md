@@ -465,7 +465,9 @@ describe("failure modes", () => {
 
       const result = runFixture(fixture, []);
 
-      expect(result.status).toBe(126);
+      // Shells differ on the status for a missing shebang interpreter: bash on
+      // macOS reports 126, while Linux shells commonly report 127.
+      expect([126, 127] as Array<number | null>).toContain(result.status);
       expect(result.stderr).toContain("could not launch");
       assertClean(fixture);
     } finally {
