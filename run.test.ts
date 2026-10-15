@@ -544,6 +544,48 @@ describe("interactive input restoration", () => {
     },
   );
 
+  test.skipIf(!HASH_TOOL_OK || !PTY_AVAILABLE || process.platform !== "darwin")(
+    "does not hand /dev/tty to the executable on macOS",
+    () => {
+      const fixture = baseFixture();
+      try {
+        const assetTty = join(fixture.tempDir, "asset-tty");
+        writeFileSync(fixture.assetSource, `#!/bin/sh\ntty > "${assetTty}" 2>/dev/null\nexit 0\n`);
+        withChecksum(fixture, `agent-links-${hostTarget()}`);
+        const transcript = join(fixture.tempDir, "transcript");
+        const cmd = `cat '${RUN_SH}' | bash`;
+
+        let ran = false;
+        for (const build of PTY_SYNTAXES) {
+          const probe = spawnSync("script", build(cmd, transcript), {
+            encoding: "utf8",
+            env: fixture.env,
+            cwd: fixture.tempDir,
+            timeout: 10000,
+          });
+          if (probe.error || probe.status !== 0) continue;
+          ran = true;
+          break;
+        }
+
+        if (!ran) {
+          // `script` (BSD or util-linux) is unavailable in this environment.
+          return;
+        }
+
+        // macOS cannot poll /dev/tty with kqueue, so the executable must run on
+        // a pseudo-terminal instead of being handed the /dev/tty device
+        // (oven-sh/bun#24158).
+        const stdinTerminal = readFileSync(assetTty, "utf8").trim();
+        expect(stdinTerminal).not.toBe("/dev/tty");
+        expect(stdinTerminal.startsWith("/dev/")).toBe(true);
+        assertClean(fixture);
+      } finally {
+        rmSync(fixture.tempDir, { recursive: true, force: true });
+      }
+    },
+  );
+
   test("without a TTY, input is not redirected and no /dev/tty is opened", () => {
     if (!HASH_TOOL_OK) return;
     const fixture = baseFixture();

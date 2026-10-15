@@ -19,10 +19,12 @@ The runner downloads the version-pinned standalone executable and matching
 SHA-256 checksum from the corresponding GitHub release, verifies the executable
 before running it, and removes its private temporary directory on exit. It
 preserves the current working directory and forwards all arguments to the CLI.
-When a controlling terminal is available, it reconnects stdin to `/dev/tty`, so
-the arrow-key/Space picker, plan review, and explicit confirmation work when the
-shell script itself is piped to Bash. This is a one-shot run: it does not install
-the CLI, change `PATH`, modify shell profiles, or use `sudo`.
+When a controlling terminal is available, it reconnects stdin from the terminal,
+so the arrow-key/Space picker, plan review, and explicit confirmation work when
+the shell script itself is piped to Bash. On macOS this uses a pseudo-terminal
+through `script(1)`, because the embedded Bun runtime cannot poll `/dev/tty`
+with kqueue. This is a one-shot run: it does not install the CLI, change `PATH`,
+modify shell profiles, or use `sudo`.
 
 The bootstrap requires `curl`, `mktemp`, a SHA-256 utility (`sha256sum` or
 `shasum`), and the usual system shell utilities. It does not require Bun or

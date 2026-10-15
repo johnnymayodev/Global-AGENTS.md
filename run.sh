@@ -106,7 +106,16 @@ fi
 
 status=0
 if [ -t 1 ] && ( : </dev/tty ) 2>/dev/null; then
-  "$temp_dir/$asset" "$@" </dev/tty || status=$?
+  # macOS cannot poll /dev/tty with kqueue, so a standalone binary given
+  # /dev/tty as stdin aborts with "EINVAL: invalid argument, kqueue"
+  # (oven-sh/bun#24158). Run it on a pseudo-terminal through script(1) instead,
+  # which keeps stdin interactive without ever opening /dev/tty. Linux is
+  # unaffected, and its script(1) takes different arguments.
+  if [ "$os" = Darwin ] && command -v script >/dev/null 2>&1; then
+    script -q /dev/null "$temp_dir/$asset" "$@" </dev/tty || status=$?
+  else
+    "$temp_dir/$asset" "$@" </dev/tty || status=$?
+  fi
 else
   "$temp_dir/$asset" "$@" || status=$?
 fi
