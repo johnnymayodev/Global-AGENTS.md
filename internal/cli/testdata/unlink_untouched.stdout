@@ -1,0 +1,10 @@
+Unlink plan:
+  Already absent: ~/.codex/AGENTS.md
+  Already absent: ~/.pi/agent/AGENTS.md
+  Already absent: ~/.omp/agent/AGENTS.md
+  Already absent: ~/.hermes/AGENTS.md
+  Already absent: ~/.claude/CLAUDE.md
+  Leave untouched (not a managed symlink): ~/.config/opencode/AGENTS.md
+  No managed symlinks will be removed.
+  Regular files and unrelated symlinks will be left untouched.
+No changes made.

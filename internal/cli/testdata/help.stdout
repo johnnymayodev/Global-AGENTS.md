@@ -1,0 +1,6 @@
+usage:
+  agent-links                 choose detected harnesses interactively
+  agent-links --all           choose from all supported harnesses
+  agent-links --list [--all]  print the detected (or all) harnesses
+  agent-links link            preview and confirm linking all supported harnesses
+  agent-links unlink          preview and confirm removal of managed links

@@ -1,0 +1,8 @@
+Global instructions: {{HOME}}/.config/agents/AGENTS.md
+
+┌──┬─────────────────┬───────────┬─────────────────────┐
+│  │ Harness         │ Installed │ Global instructions │
+├──┼─────────────────┼───────────┼─────────────────────┤
+│  │ (none detected) │           │                     │
+└──┴─────────────────┴───────────┴─────────────────────┘
+No supported harnesses were detected. Use `agent-links --all` to show every supported target.

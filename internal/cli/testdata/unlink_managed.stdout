@@ -1,0 +1,9 @@
+Unlink plan:
+  Remove only these managed symlink entries (not their target files):
+    ~/.config/opencode/AGENTS.md -> ~/.config/agents/AGENTS.md
+  Already absent: ~/.codex/AGENTS.md
+  Already absent: ~/.pi/agent/AGENTS.md
+  Already absent: ~/.omp/agent/AGENTS.md
+  Already absent: ~/.hermes/AGENTS.md
+  Already absent: ~/.claude/CLAUDE.md
+  Regular files and unrelated symlinks will be left untouched.
