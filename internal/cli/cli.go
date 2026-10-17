@@ -100,6 +100,15 @@ func fail(stderr io.Writer, err error) int {
 // pickerFlow mirrors the no-args and --all flows: ensure the source file,
 // pick harnesses, then reconcile the selection.
 func pickerFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
+	if p.Interactive {
+		return pickerFlowTUI(ctx, p, showAll)
+	}
+	return pickerFlowPlain(ctx, p, showAll)
+}
+
+// pickerFlowPlain prints the table and the non-interactive notice; choosing
+// harnesses needs a terminal.
+func pickerFlowPlain(ctx harness.Context, p ui.Prompter, showAll bool) error {
 	ok, err := p.EnsureSourceFile(ctx)
 	if err != nil || !ok {
 		return err
@@ -113,20 +122,72 @@ func pickerFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
 	if err != nil {
 		return err
 	}
-
-	selected, cancelled, err := ui.ChooseHarnesses(visible, ctx, current, p.Interactive, p.Out)
+	table, err := ui.RenderTable(visible, ctx, current, -1)
 	if err != nil {
 		return err
 	}
-	if cancelled {
+	fmt.Fprintln(p.Out, table)
+	fmt.Fprintln(p.Out, "Interactive selection needs a terminal; no changes made.")
+	fmt.Fprintln(p.Out, "Cancelled. No changes made.")
+	return nil
+}
+
+// pickerFlowTUI runs the full-screen wizard: the first-run setup when the
+// source file is missing, the selection, and the plan review, as one
+// alternate-screen program.
+func pickerFlowTUI(ctx harness.Context, p ui.Prompter, showAll bool) error {
+	exists, err := harness.SourceFileExists(ctx)
+	if err != nil {
+		return err
+	}
+	visible, err := harness.Visible(ctx, showAll)
+	if err != nil {
+		return err
+	}
+	current, err := managedSelection(visible, ctx)
+	if err != nil {
+		return err
+	}
+
+	if len(visible) == 0 {
+		// Nothing to pick: still run first-run setup, then print the table.
+		ok, err := p.EnsureSourceFile(ctx)
+		if err != nil || !ok {
+			return err
+		}
+		table, err := ui.RenderTable(visible, ctx, current, -1)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(p.Out, table)
+		fmt.Fprintln(p.Out, "No supported harnesses were detected. Use `agent-links --all` to show every supported target.")
 		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
 		return nil
 	}
-	if sameSelection(current, selected) {
-		fmt.Fprintln(p.Out, "No changes made.")
-		return nil
+
+	result, err := ui.RunWizard(ui.WizardFlow{
+		Harnesses: visible,
+		Ctx:       ctx,
+		Initial:   current,
+		Setup:     !exists,
+		Review:    reconcileReview(visible, ctx, p),
+	})
+	if err != nil {
+		return err
 	}
-	return reconcileSelection(visible, selected, ctx, p)
+	for _, notice := range result.Notices {
+		fmt.Fprintln(p.Out, notice)
+	}
+	switch {
+	case result.Cancelled:
+		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
+	case result.NoChanges:
+		fmt.Fprintln(p.Out, "No changes made.")
+	case result.Applied:
+		fmt.Fprintln(p.Out, result.Review.Summary)
+		return result.Review.Apply()
+	}
+	return nil
 }
 
 // listFlow prints the detected (or all) harnesses as a table.
@@ -217,57 +278,46 @@ func unlinkFlow(ctx harness.Context, p ui.Prompter) error {
 	return plan.RemoveManagedLinks(unlinkPlan.ToRemove, ctx, p.Out, p.Err)
 }
 
-// reconcileSelection applies the combined plan of an interactive selection,
-// creating links before removing any managed link.
-func reconcileSelection(visible []harness.Harness, selected map[string]bool, ctx harness.Context, p ui.Prompter) error {
-	reconcilePlan, err := plan.Reconcile(visible, selected, ctx)
-	if err != nil {
-		return err
-	}
-	planText := plan.RenderReconcilePlan(reconcilePlan, ctx)
-	if len(reconcilePlan.ToCreate) == 0 && len(reconcilePlan.ToRemove) == 0 {
-		fmt.Fprintln(p.Out, planText)
-		fmt.Fprintln(p.Out, "No changes made.")
-		return nil
-	}
-
-	var changes []string
-	if len(reconcilePlan.ToCreate) > 0 {
-		changes = append(changes, fmt.Sprintf("create %d symlink(s)", len(reconcilePlan.ToCreate)))
-	}
-	if len(reconcilePlan.ToRemove) > 0 {
-		changes = append(changes, fmt.Sprintf("remove %d managed symlink(s)", len(reconcilePlan.ToRemove)))
-	}
-	summary := strings.Join(changes, " and ")
-	needsTerminal := ""
-	if len(reconcilePlan.ToRemove) > 0 {
-		needsTerminal = "removal requires interactive confirmation; no changes made"
-	}
-
-	confirmed, err := p.Confirm(
-		planText,
-		fmt.Sprintf(`Type "yes" to apply the plan above (%s): `, summary),
-		fmt.Sprintf("Confirmation received; applying plan (%s).", summary),
-		needsTerminal,
-	)
-	if err != nil {
-		return err
-	}
-	if !confirmed {
-		return nil
-	}
-
-	if err := plan.ApplyReconcile(reconcilePlan, ctx, p.Out, p.Err); err != nil {
-		return err
-	}
-
-	var chosen []harness.Harness
-	for _, h := range visible {
-		if selected[h.ID] {
-			chosen = append(chosen, h)
+// reconcileReview adapts the picker's reconciliation to the wizard's review
+// step: it builds the plan text, the confirmation line, and the apply closure
+// from one reconcile pass, so the plan the user approved is exactly the plan
+// that runs.
+func reconcileReview(visible []harness.Harness, ctx harness.Context, p ui.Prompter) func(map[string]bool) (ui.Review, bool, error) {
+	return func(selected map[string]bool) (ui.Review, bool, error) {
+		reconcilePlan, err := plan.Reconcile(visible, selected, ctx)
+		if err != nil {
+			return ui.Review{}, false, err
 		}
+		if len(reconcilePlan.ToCreate) == 0 && len(reconcilePlan.ToRemove) == 0 {
+			return ui.Review{}, false, nil
+		}
+
+		var changes []string
+		if len(reconcilePlan.ToCreate) > 0 {
+			changes = append(changes, fmt.Sprintf("create %d symlink(s)", len(reconcilePlan.ToCreate)))
+		}
+		if len(reconcilePlan.ToRemove) > 0 {
+			changes = append(changes, fmt.Sprintf("remove %d managed symlink(s)", len(reconcilePlan.ToRemove)))
+		}
+		summary := strings.Join(changes, " and ")
+
+		return ui.Review{
+			Text:    plan.RenderReconcilePlan(reconcilePlan, ctx),
+			Summary: fmt.Sprintf("Confirmation received; applying plan (%s).", summary),
+			Apply: func() error {
+				if err := plan.ApplyReconcile(reconcilePlan, ctx, p.Out, p.Err); err != nil {
+					return err
+				}
+				var chosen []harness.Harness
+				for _, h := range visible {
+					if selected[h.ID] {
+						chosen = append(chosen, h)
+					}
+				}
+				return printLinkNotes(chosen, ctx, p.Err)
+			},
+		}, true, nil
 	}
-	return printLinkNotes(chosen, ctx, p.Err)
 }
 
 // managedSelection collects the IDs whose target is already a managed link.
@@ -283,18 +333,6 @@ func managedSelection(harnesses []harness.Harness, ctx harness.Context) (map[str
 		}
 	}
 	return selected, nil
-}
-
-func sameSelection(left, right map[string]bool) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for id := range left {
-		if !right[id] {
-			return false
-		}
-	}
-	return true
 }
 
 func printLinkNotes(targets []harness.Harness, ctx harness.Context, stderr io.Writer) error {
