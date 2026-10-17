@@ -2,13 +2,12 @@
 // pseudo-terminal, covering the interactive Bubble Tea paths: the picker,
 // the plan confirmation, and the source-file setup flow.
 //
-// The primary driver is python3's pty.fork(), following the technique in
-// build-standalone.test.ts: it feeds keys only after waiting for on-screen
-// markers, so it also covers progress through the flows. When python3 is
-// unavailable (or too old for waitstatus_to_exitcode), the tests fall back to
-// pre-feeding every keystroke through script(1), trying the BSD and
-// util-linux argument forms as run.test.ts does; when neither driver exists
-// the tests skip rather than fail.
+// The primary driver is python3's pty.fork(): it feeds keys only after waiting
+// for on-screen markers, so it also covers progress through the flows. When
+// python3 is unavailable (or too old for waitstatus_to_exitcode), the tests
+// fall back to pre-feeding every keystroke through script(1), trying the BSD
+// and util-linux argument forms; when neither driver exists the tests skip
+// rather than fail.
 package e2e_test
 
 import (

@@ -8,8 +8,8 @@ set -eu
 #
 # Downloads the released standalone executable for this machine into a private
 # temporary directory, verifies its SHA-256 checksum, runs it with the caller's
-# arguments and working directory, then removes the temporary files. No runtime
-# (Bun or Node.js), PATH change, or installation is required.
+# arguments and working directory, then removes the temporary files. No runtime,
+# PATH change, or installation is required.
 
 repository=johnnymayodev/Global-AGENTS.md
 version=0.1.0
@@ -24,17 +24,10 @@ case "$os:$machine" in
   Linux:arm64 | Linux:aarch64) target=linux-arm64 ;;
   *)
     printf 'error: unsupported platform: %s %s\n' "$os" "$machine" >&2
-    printf 'supported: macOS and glibc-based Linux (including WSL), x64 and arm64\n' >&2
+    printf 'supported: macOS and Linux (including musl-based distributions and WSL), x64 and arm64\n' >&2
     exit 2
     ;;
 esac
-
-if [ "$target" = linux-x64 ] || [ "$target" = linux-arm64 ]; then
-  if ls /lib/ld-musl-* >/dev/null 2>&1; then
-    printf 'error: musl-based Linux (for example Alpine) is not supported; use a glibc-based distribution or WSL\n' >&2
-    exit 2
-  fi
-fi
 
 if ! command -v curl >/dev/null 2>&1; then
   printf 'error: curl is required to download agent-links\n' >&2
@@ -106,23 +99,14 @@ fi
 
 status=0
 if [ -t 1 ] && ( : </dev/tty ) 2>/dev/null; then
-  # macOS cannot poll /dev/tty with kqueue, so a standalone binary given
-  # /dev/tty as stdin aborts with "EINVAL: invalid argument, kqueue"
-  # (oven-sh/bun#24158). Run it on a pseudo-terminal through script(1) instead,
-  # which keeps stdin interactive without ever opening /dev/tty. Linux is
-  # unaffected, and its script(1) takes different arguments.
-  if [ "$os" = Darwin ] && command -v script >/dev/null 2>&1; then
-    script -q /dev/null "$temp_dir/$asset" "$@" </dev/tty || status=$?
-  else
-    "$temp_dir/$asset" "$@" </dev/tty || status=$?
-  fi
+  # Reconnect stdin from the controlling terminal so the interactive picker,
+  # plan review, and confirmation work when this script itself was piped into
+  # a shell (curl ... | bash).
+  "$temp_dir/$asset" "$@" </dev/tty || status=$?
 else
   "$temp_dir/$asset" "$@" || status=$?
 fi
 if [ "$status" -eq 126 ] || [ "$status" -eq 127 ]; then
   printf 'error: could not launch %s; check that the release asset matches this operating system and architecture\n' "$asset" >&2
-  case "$target" in
-    linux-*) printf 'Linux requires glibc 2.35 or newer; musl-based systems are not supported\n' >&2 ;;
-  esac
 fi
 exit "$status"

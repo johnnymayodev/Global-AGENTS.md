@@ -2,14 +2,17 @@
 
 Shared `AGENTS.md` linked across supported AI coding harnesses.
 
-`Global AGENTS.md` provides the `agent-links` CLI, which creates symlinks from
-one shared `~/.config/agents/AGENTS.md` to the global instruction locations used
-by supported AI coding harnesses. It detects installed harnesses and does not
-overwrite existing files or unrelated symlinks.
+`Global AGENTS.md` provides the `agent-links` CLI, a standalone Go binary that
+creates symlinks from one shared `~/.config/agents/AGENTS.md` to the global
+instruction locations used by supported AI coding harnesses. It detects
+installed harnesses and does not overwrite existing files or unrelated symlinks.
+Selection, plan review, and confirmation run in an interactive terminal UI built
+with Bubble Tea.
 
 ## Run from GitHub
 
-Run the one-shot standalone CLI without cloning or installing Bun/Node:
+Run the one-shot standalone CLI without cloning, installing a runtime, or
+building anything:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/main/run.sh | bash
@@ -21,71 +24,58 @@ before running it, and removes its private temporary directory on exit. It
 preserves the current working directory and forwards all arguments to the CLI.
 When a controlling terminal is available, it reconnects stdin from the terminal,
 so the arrow-key/Space picker, plan review, and explicit confirmation work when
-the shell script itself is piped to Bash. On macOS this uses a pseudo-terminal
-through `script(1)`, because the embedded Bun runtime cannot poll `/dev/tty`
-with kqueue. This is a one-shot run: it does not install the CLI, change `PATH`,
-modify shell profiles, or use `sudo`.
+the shell script itself is piped to Bash. This is a one-shot run: it does not
+install the CLI, change `PATH`, modify shell profiles, or use `sudo`.
 
 The bootstrap requires `curl`, `mktemp`, a SHA-256 utility (`sha256sum` or
-`shasum`), and the usual system shell utilities. It does not require Bun or
-Node.js. Supported releases are macOS and glibc-based Linux on x64 and ARM64;
-WSL uses the Linux assets. Linux builds target **glibc 2.35 or newer** (Ubuntu
-22.04 baseline). musl-based distributions such as Alpine and native Windows are
-not supported. The embedded Bun runtime makes each downloaded executable large.
+`shasum`), and the usual system shell utilities; no language runtime is
+required. Supported releases are macOS and Linux on x64 and ARM64; the static
+Linux binaries also run on musl-based distributions such as Alpine, and WSL uses
+the Linux assets. Native Windows is not supported.
 
 The checksum detects a corrupted or mismatched download; because both files are
 served by the same GitHub release, it is not an independent signature and does
 not protect against a compromised release account or release itself. The
-standalone runner is pinned to `v0.1.0`; the release workflow checks that its
-version matches `package.json` before building and publishing assets.
+standalone runner is pinned to `v0.2.0`; the release workflow checks that the tag
+matches the pinned `version` in `run.sh` before building and publishing assets.
+
+## Install or build from source
+
+Go 1.26 or newer (the `go` directive in `go.mod`) is required to install or
+build the CLI:
+
+```sh
+go install github.com/johnnymayodev/Global-AGENTS.md/cmd/agent-links@latest
+```
+
+To build from a checkout instead, `sh build.sh [target] [outfile]`
+cross-compiles any of the four release targets and defaults to the host
+platform:
+
+```sh
+sh build.sh                          # dist/agent-links-<host target>
+sh build.sh linux-x64                # any release target
+sh build.sh linux-x64 /tmp/agent-links
+```
+
+The release targets are `darwin-arm64`, `darwin-x64`, `linux-arm64`, and
+`linux-x64`. `CGO_ENABLED=0` makes the Linux builds fully static, so they run on
+both glibc and musl systems. The npm package `global-agents-md` and its
+`runAgentLinks` export are retired: there is no JavaScript API, and programmatic
+consumers exec the `agent-links` binary.
 
 ## Usage
 
-Bun is preferred; Node.js 22.18+, 24.x, and 26.x are also supported. No package
-installation or `bun install` is needed.
+On first run, if `~/.config/agents/AGENTS.md` does not exist, the CLI asks
+whether to copy an existing instructions file (enter its path) or create a blank
+one. Use the arrow keys to move, Space to select harnesses, and Enter to review
+the plan; type `yes` to apply it. The one-shot runner opens this same picker by
+default.
 
-1. Download or clone [Global AGENTS.md from GitHub](https://github.com/johnnymayodev/Global-AGENTS.md).
-2. From the repository directory, run the local launcher (Bun is used when installed;
-   otherwise it falls back to Node):
+## Releases
 
-   ```sh
-   ./agent-links
-   ```
-
-   Alternatively, invoke the TypeScript entry point directly:
-
-   ```sh
-   bun agent-links.ts
-   # or
-   node agent-links.ts
-   ```
-
-   If `~/.config/agents/AGENTS.md` does not exist, the CLI asks whether to copy
-   an existing instructions file (enter its path) or create a blank one.
-
-3. Use the arrow keys to move, Space to select harnesses, and Enter to review the
-   plan; type `yes` to apply it. The one-shot runner opens this same picker by
-   default.
-
-## Standalone builds and releases
-
-Build a standalone executable for the current machine (Bun 1.4+ is required only
-for building):
-
-```sh
-sh build-standalone.sh
-```
-
-The optional target and output arguments are intended for builds on matching
-native runners. For example:
-
-```sh
-sh build-standalone.sh bun-linux-x64 dist/agent-links-linux-x64
-```
-
-The release workflow builds the four supported
-targets on native GitHub-hosted runners, creates per-platform SHA-256 checksum
-files, and attaches both files to the version tag's GitHub release. Before a
-release, update `package.json` and the pinned `version` in `run.sh` together,
-then push the matching `vX.Y.Z` tag. The bootstrap will not work for a version
-until its release assets exist.
+The release workflow cross-compiles the four supported targets on one Linux
+runner, creates per-platform SHA-256 checksum files, and attaches both files to
+the version tag's GitHub release. Before a release, update the pinned `version`
+in `run.sh` and push the matching `vX.Y.Z` tag. The bootstrap will not work for a
+version until its release assets exist.

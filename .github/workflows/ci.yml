@@ -8,45 +8,45 @@ permissions:
   contents: read
 
 jobs:
-  bun:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: ./agent-links --help
-
-  node:
-    runs-on: ubuntu-latest
+  test:
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        node-version: [22, 24, 26]
+        os: [ubuntu-latest, macos-15]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-go@v5
         with:
-          node-version: ${{ matrix.node-version }}
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile
-      - name: Build with Node
+          go-version-file: go.mod
+          cache: true
+      - name: Check formatting
         run: |
-          node_bin="$(dirname "$(command -v node)")"
-          PATH="$node_bin:/usr/bin:/bin" sh build.sh
-      - name: Run TypeScript entry point
-        run: node agent-links.ts --help
-      - name: Run built package entry point
-        run: node dist/agent-links.js --help
-      - name: Run launcher with Node fallback
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            printf 'gofmt reports unformatted files:\n%s\n' "$unformatted" >&2
+            exit 1
+          fi
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go build ./...
+
+  cross-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Cross-build all release targets
         run: |
-          node_bin="$(dirname "$(command -v node)")"
-          PATH="$node_bin:/usr/bin:/bin" ./agent-links --help
-      - name: Pack and run the Node package
+          for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            sh build.sh "$target"
+          done
+      - name: Check Linux assets are statically linked
         run: |
-          node_bin="$(dirname "$(command -v node)")"
-          PATH="$node_bin:/usr/bin:/bin" npm pack --pack-destination "$RUNNER_TEMP"
-          tarball="$(find "$RUNNER_TEMP" -maxdepth 1 -name 'global-agents-md-*.tgz' -print -quit)"
-          PATH="$node_bin:/usr/bin:/bin" npm install --prefix "$RUNNER_TEMP/node-consumer" --ignore-scripts "$tarball"
-          PATH="$node_bin:/usr/bin:/bin" "$RUNNER_TEMP/node-consumer/node_modules/.bin/agent-links" --help
-          (cd "$RUNNER_TEMP/node-consumer" && node --input-type=module -e 'import { runAgentLinks } from "global-agents-md"; if (typeof runAgentLinks !== "function") process.exitCode = 1;')
+          for asset in dist/agent-links-linux-arm64 dist/agent-links-linux-x64; do
+            file "$asset"
+            file "$asset" | grep -q 'statically linked'
+          done
