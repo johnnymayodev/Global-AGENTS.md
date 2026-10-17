@@ -164,13 +164,15 @@ func linkTargets(targets []harness.Harness, ctx harness.Context, p ui.Prompter) 
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(p.Out, plan.RenderLinkPlan(linkPlan, ctx))
+	planText := plan.RenderLinkPlan(linkPlan, ctx)
 	if len(linkPlan.ToCreate) == 0 {
+		fmt.Fprintln(p.Out, planText)
 		fmt.Fprintln(p.Out, "No changes made.")
 		return printLinkNotes(targets, ctx, p.Err)
 	}
 
 	confirmed, err := p.Confirm(
+		planText,
 		fmt.Sprintf(`Type "yes" to create the %d symlink(s) listed above: `, len(linkPlan.ToCreate)),
 		fmt.Sprintf("Confirmation received; creating %d symlink(s).", len(linkPlan.ToCreate)),
 		"",
@@ -193,13 +195,15 @@ func unlinkFlow(ctx harness.Context, p ui.Prompter) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(p.Out, plan.RenderUnlinkPlan(unlinkPlan, ctx))
+	planText := plan.RenderUnlinkPlan(unlinkPlan, ctx)
 	if len(unlinkPlan.ToRemove) == 0 {
+		fmt.Fprintln(p.Out, planText)
 		fmt.Fprintln(p.Out, "No changes made.")
 		return nil
 	}
 
 	confirmed, err := p.Confirm(
+		planText,
 		fmt.Sprintf(`Type "yes" to remove the %d managed symlink(s) listed above: `, len(unlinkPlan.ToRemove)),
 		fmt.Sprintf("Confirmation received; removing %d managed symlink(s).", len(unlinkPlan.ToRemove)),
 		"removal requires interactive confirmation; no changes made",
@@ -220,8 +224,9 @@ func reconcileSelection(visible []harness.Harness, selected map[string]bool, ctx
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(p.Out, plan.RenderReconcilePlan(reconcilePlan, ctx))
+	planText := plan.RenderReconcilePlan(reconcilePlan, ctx)
 	if len(reconcilePlan.ToCreate) == 0 && len(reconcilePlan.ToRemove) == 0 {
+		fmt.Fprintln(p.Out, planText)
 		fmt.Fprintln(p.Out, "No changes made.")
 		return nil
 	}
@@ -240,6 +245,7 @@ func reconcileSelection(visible []harness.Harness, selected map[string]bool, ctx
 	}
 
 	confirmed, err := p.Confirm(
+		planText,
 		fmt.Sprintf(`Type "yes" to apply the plan above (%s): `, summary),
 		fmt.Sprintf("Confirmation received; applying plan (%s).", summary),
 		needsTerminal,

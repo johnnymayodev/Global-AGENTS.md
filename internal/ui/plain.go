@@ -16,10 +16,9 @@ import (
 	"github.com/johnnymayodev/Global-AGENTS.md/internal/harness"
 )
 
-// Prompter runs the plain-text interaction path: line prompts over stdin and
-// stdout, errors over stderr. Interactive reports that stdin and stdout are
-// both terminals; the Bubble Tea models take over those paths once the TUI
-// work lands.
+// Prompter runs the interactions: the Bubble Tea models in tui.go when stdin
+// and stdout are both terminals, and otherwise the plain-text path: line
+// prompts over stdin and stdout, errors over stderr.
 type Prompter struct {
 	In          *bufio.Reader
 	Out         io.Writer
@@ -40,7 +39,7 @@ func (p Prompter) Ask(message string) (answer string, ok bool) {
 }
 
 // EnsureSourceFile returns true when the canonical instructions file exists,
-// running the copy / blank / cancel setup menu when it is missing. It returns
+// running the copy / blank / cancel setup flow when it is missing. It returns
 // false when the user cancelled.
 func (p Prompter) EnsureSourceFile(ctx harness.Context) (bool, error) {
 	exists, err := harness.SourceFileExists(ctx)
@@ -49,6 +48,9 @@ func (p Prompter) EnsureSourceFile(ctx harness.Context) (bool, error) {
 	}
 	if exists {
 		return true, nil
+	}
+	if p.Interactive {
+		return p.ensureSourceFileTUI(ctx)
 	}
 
 	fmt.Fprintf(p.Out, "No shared instructions file found at %s.\n", ctx.SourceFile)
@@ -88,11 +90,48 @@ func (p Prompter) EnsureSourceFile(ctx harness.Context) (bool, error) {
 	}
 }
 
-// Confirm prompts for an explicit "yes". needsTerminal, when set, becomes an
-// error instead of a prompt when the session has no terminal. It returns
-// false when the answer was not "yes" or stdin closed before one arrived.
-func (p Prompter) Confirm(prompt, confirmation, needsTerminal string) (bool, error) {
-	if needsTerminal != "" && !p.Interactive {
+// ensureSourceFileTUI runs the setup flow as a Bubble Tea program and prints
+// its outcome after the program has left the alternate screen.
+func (p Prompter) ensureSourceFileTUI(ctx harness.Context) (bool, error) {
+	model := NewSetupModel(ctx)
+	if err := runProgram(model); err != nil {
+		return false, err
+	}
+	if model.Err != nil {
+		return false, model.Err
+	}
+	if !model.Created {
+		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
+		return false, nil
+	}
+	if model.From == "" {
+		fmt.Fprintf(p.Out, "Created blank instructions file: %s\n", ctx.SourceFile)
+	} else {
+		fmt.Fprintf(p.Out, "Created %s from %s\n", ctx.SourceFile, model.From)
+	}
+	return true, nil
+}
+
+// Confirm prompts for an explicit "yes" after showing the plan text. needsTerminal,
+// when set, becomes an error instead of a prompt when the session has no
+// terminal. It returns false when the answer was not "yes" or stdin closed
+// before one arrived.
+func (p Prompter) Confirm(planText, prompt, confirmation, needsTerminal string) (bool, error) {
+	if p.Interactive {
+		model := NewConfirmModel(planText, prompt)
+		if err := runProgram(model); err != nil {
+			return false, err
+		}
+		if model.Confirmed {
+			fmt.Fprintln(p.Out, confirmation)
+			return true, nil
+		}
+		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
+		return false, nil
+	}
+
+	fmt.Fprintln(p.Out, planText)
+	if needsTerminal != "" {
 		return false, errors.New(needsTerminal)
 	}
 	answer, ok := p.Ask(prompt)
@@ -200,8 +239,14 @@ func ChooseHarnesses(harnesses []harness.Harness, ctx harness.Context, initial m
 		fmt.Fprintln(out, "No supported harnesses were detected. Use `agent-links --all` to show every supported target.")
 		return nil, true, nil
 	}
-	// The Bubble Tea picker model is wired in when the TUI work lands.
-	return nil, false, errors.New("interactive selection is not implemented yet")
+	model := NewPickerModel(harnesses, ctx, initial)
+	if err := runProgram(model); err != nil {
+		return nil, false, err
+	}
+	if !model.Done {
+		return nil, true, nil
+	}
+	return model.Selection(), false, nil
 }
 
 func cellWidth(cell string) int {
