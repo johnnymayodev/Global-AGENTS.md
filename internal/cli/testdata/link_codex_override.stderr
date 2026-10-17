@@ -1,0 +1,3 @@
+note: Codex prefers its non-empty {{HOME}}/.codex/AGENTS.override.md over AGENTS.md
+note: Hermes global AGENTS.md loading depends on Hermes version;
+      current docs guarantee global SOUL.md, not AGENTS.md

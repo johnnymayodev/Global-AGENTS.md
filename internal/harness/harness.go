@@ -156,6 +156,9 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 	}, nil
 }
 
+// Cwd returns the working directory captured when the context was built.
+func (c Context) Cwd() string { return c.cwd }
+
 // MissingPath reports whether err means the path does not exist. The
 // TypeScript implementation treats ENOENT and ENOTDIR as missing; Go maps
 // only ENOENT to fs.ErrNotExist.

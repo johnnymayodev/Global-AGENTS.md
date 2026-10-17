@@ -1,0 +1,9 @@
+Global instructions: {{HOME}}/.config/agents/AGENTS.md
+
+┌──┬─────────────────┬───────────┬─────────────────────┐
+│  │ Harness         │ Installed │ Global instructions │
+├──┼─────────────────┼───────────┼─────────────────────┤
+│  │ [ ] Claude Code │ Yes       │ ~/.claude/CLAUDE.md │
+└──┴─────────────────┴───────────┴─────────────────────┘
+Interactive selection needs a terminal; no changes made.
+Cancelled. No changes made.

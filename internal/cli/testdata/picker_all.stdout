@@ -1,0 +1,14 @@
+Global instructions: {{HOME}}/.config/agents/AGENTS.md
+
+┌──┬──────────────────┬───────────┬──────────────────────────────┐
+│  │ Harness          │ Installed │ Global instructions          │
+├──┼──────────────────┼───────────┼──────────────────────────────┤
+│  │ [ ] OpenCode     │ No        │ ~/.config/opencode/AGENTS.md │
+│  │ [ ] Codex        │ No        │ ~/.codex/AGENTS.md           │
+│  │ [ ] Pi           │ No        │ ~/.pi/agent/AGENTS.md        │
+│  │ [ ] OMP          │ No        │ ~/.omp/agent/AGENTS.md       │
+│  │ [ ] Hermes Agent │ No        │ ~/.hermes/AGENTS.md          │
+│  │ [ ] Claude Code  │ No        │ ~/.claude/CLAUDE.md          │
+└──┴──────────────────┴───────────┴──────────────────────────────┘
+Interactive selection needs a terminal; no changes made.
+Cancelled. No changes made.
