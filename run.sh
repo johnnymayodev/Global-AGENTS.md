@@ -12,7 +12,7 @@ set -eu
 # PATH change, or installation is required.
 
 repository=johnnymayodev/Global-AGENTS.md
-version=0.1.0
+version=0.2.0
 
 os=$(uname -s)
 machine=$(uname -m)
