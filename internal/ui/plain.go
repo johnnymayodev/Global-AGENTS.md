@@ -112,13 +112,14 @@ func (p Prompter) ensureSourceFileTUI(ctx harness.Context) (bool, error) {
 	return true, nil
 }
 
-// Confirm prompts for an explicit "yes" after showing the plan text. needsTerminal,
-// when set, becomes an error instead of a prompt when the session has no
-// terminal. It returns false when the answer was not "yes" or stdin closed
-// before one arrived.
+// Confirm asks for approval after showing the plan text. With a terminal the
+// review screen applies on a single enter and cancels on esc; without one it
+// prompts for an explicit "yes". needsTerminal, when set, becomes an error
+// instead of a prompt when the session has no terminal. It returns false when
+// the user cancelled.
 func (p Prompter) Confirm(planText, prompt, confirmation, needsTerminal string) (bool, error) {
 	if p.Interactive {
-		model := NewConfirmModel(planText, prompt)
+		model := NewConfirmModel(planText)
 		if err := runProgram(model); err != nil {
 			return false, err
 		}
@@ -219,34 +220,6 @@ func RenderTable(harnesses []harness.Harness, ctx harness.Context, selected map[
 	}
 	lines = append(lines, border("└", "┴", "┘"))
 	return strings.Join(lines, "\n"), nil
-}
-
-// ChooseHarnesses runs the interactive picker. Without a terminal it prints
-// the table and the non-interactive notice instead. It reports cancelled when
-// no selection was made.
-func ChooseHarnesses(harnesses []harness.Harness, ctx harness.Context, initial map[string]bool, interactive bool, out io.Writer) (selection map[string]bool, cancelled bool, err error) {
-	table, err := RenderTable(harnesses, ctx, initial, -1)
-	if err != nil {
-		return nil, false, err
-	}
-	if !interactive {
-		fmt.Fprintln(out, table)
-		fmt.Fprintln(out, "Interactive selection needs a terminal; no changes made.")
-		return nil, true, nil
-	}
-	if len(harnesses) == 0 {
-		fmt.Fprintln(out, table)
-		fmt.Fprintln(out, "No supported harnesses were detected. Use `agent-links --all` to show every supported target.")
-		return nil, true, nil
-	}
-	model := NewPickerModel(harnesses, ctx, initial)
-	if err := runProgram(model); err != nil {
-		return nil, false, err
-	}
-	if !model.Done {
-		return nil, true, nil
-	}
-	return model.Selection(), false, nil
 }
 
 func cellWidth(cell string) int {

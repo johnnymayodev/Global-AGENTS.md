@@ -461,8 +461,8 @@ func TestPickerReviewConfirm(t *testing.T) {
 		home: home,
 		args: []string{"--all"},
 		steps: []tuiStep{
-			{wait: "Space toggle", send: " \r"},
-			{wait: `Type "yes" to apply the plan above (create 1 symlink(s)):`, send: "yes\r"},
+			{wait: "Link your shared instructions into each harness.", send: " \r"},
+			{wait: "Apply this plan?", send: "\r"},
 		},
 	})
 
@@ -470,9 +470,9 @@ func TestPickerReviewConfirm(t *testing.T) {
 		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
 	}
 	result.assertContains(t,
-		"Space toggle",
+		"Link your shared instructions into each harness.",
 		"Apply plan:",
-		`Type "yes" to apply the plan above (create 1 symlink(s)):`,
+		"Apply this plan?",
 		"Confirmation received; applying plan (create 1 symlink(s)).",
 		"created symlink ~/.config/opencode/AGENTS.md",
 	)
@@ -487,7 +487,7 @@ func TestPickerReviewConfirm(t *testing.T) {
 	}
 }
 
-func TestPickerReviewDecline(t *testing.T) {
+func TestPickerReviewCancelAtReview(t *testing.T) {
 	home := t.TempDir()
 	writeSource(t, home)
 
@@ -495,8 +495,8 @@ func TestPickerReviewDecline(t *testing.T) {
 		home: home,
 		args: []string{"--all"},
 		steps: []tuiStep{
-			{wait: "Space toggle", send: " \r"},
-			{wait: `Type "yes" to apply the plan above (create 1 symlink(s)):`, send: "no\r"},
+			{wait: "Link your shared instructions into each harness.", send: " \r"},
+			{wait: "Apply this plan?", send: "\x03"},
 		},
 	})
 
@@ -509,7 +509,41 @@ func TestPickerReviewDecline(t *testing.T) {
 	)
 	target := filepath.Join(home, ".config", "opencode", "AGENTS.md")
 	if _, err := os.Lstat(target); err == nil {
-		t.Errorf("%s exists after a declined plan", target)
+		t.Errorf("%s exists after a cancelled review", target)
+	}
+}
+
+// TestPickerSetupThenReview drives the wizard's first-run setup, its select
+// step, and its review step in one session: no shared file, create a blank
+// one, pick OpenCode, then apply.
+func TestPickerSetupThenReview(t *testing.T) {
+	home := t.TempDir()
+	source := sourceFilePath(home)
+
+	result := runTUI(t, tuiSpec{
+		home: home,
+		args: []string{"--all"},
+		steps: []tuiStep{
+			{wait: "Create a blank AGENTS.md", send: "2"},
+			{wait: "Link your shared instructions into each harness.", send: " \r"},
+			{wait: "Apply this plan?", send: "\r"},
+		},
+	})
+
+	if result.exitCode != 0 {
+		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
+	}
+	result.assertContains(t,
+		"Create a blank AGENTS.md",
+		fmt.Sprintf("Created blank instructions file: %s", source),
+		"Apply plan:",
+		"Confirmation received; applying plan (create 1 symlink(s)).",
+	)
+
+	target := filepath.Join(home, ".config", "opencode", "AGENTS.md")
+	link, err := os.Readlink(target)
+	if err != nil || link != source {
+		t.Errorf("target symlink = %q, %v; want a symlink to %s", link, err, source)
 	}
 }
 
@@ -521,8 +555,8 @@ func TestSetupBlankThenLinkConfirm(t *testing.T) {
 		home: home,
 		args: []string{"link"},
 		steps: []tuiStep{
-			{wait: "Choose: [1] copy an existing instructions file", send: "2"},
-			{wait: `Type "yes" to create the 6 symlink(s) listed above:`, send: "yes\r"},
+			{wait: "Create a blank AGENTS.md", send: "2"},
+			{wait: "Link plan:", send: "\r"},
 		},
 	})
 
@@ -530,9 +564,10 @@ func TestSetupBlankThenLinkConfirm(t *testing.T) {
 		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
 	}
 	result.assertContains(t,
-		"Choose: [1] copy an existing instructions file",
+		"Create a blank AGENTS.md",
 		fmt.Sprintf("Created blank instructions file: %s", source),
-		`Type "yes" to create the 6 symlink(s) listed above:`,
+		"Link plan:",
+		"Apply this plan?",
 		"Confirmation received; creating 6 symlink(s).",
 	)
 
@@ -562,8 +597,8 @@ func TestSetupCopy(t *testing.T) {
 	result := runTUI(t, tuiSpec{
 		home: home,
 		steps: []tuiStep{
-			{wait: "Choose: [1] copy an existing instructions file", send: "1"},
-			{wait: "Path to the existing instructions file:", send: selected + "\r"},
+			{wait: "Copy an existing instructions file", send: "1"},
+			{wait: "Path to the existing instructions file", send: selected + "\r"},
 		},
 	})
 
@@ -571,8 +606,11 @@ func TestSetupCopy(t *testing.T) {
 		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
 	}
 	result.assertContains(t,
-		"Path to the existing instructions file:",
+		"Copy an existing instructions file",
+		"Path to the existing instructions file",
+		"✓ file exists",
 		fmt.Sprintf("Created %s from %s", source, selected),
+		"No supported harnesses were detected. Use `agent-links --all` to show every supported target.",
 		"Cancelled. No changes made.", // no harness is detected, so the picker cancels
 	)
 
@@ -605,7 +643,7 @@ func TestPipedScriptReachesPicker(t *testing.T) {
 		steps: []tuiStep{
 			// Esc cancels the picker; it is safe to pre-feed on the
 			// script(1) path because it is a plain byte, not a signal.
-			{wait: "Space toggle", send: "\x1b"},
+			{wait: "Link your shared instructions into each harness.", send: "\x1b"},
 		},
 	})
 
@@ -613,7 +651,7 @@ func TestPipedScriptReachesPicker(t *testing.T) {
 		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
 	}
 	result.assertContains(t,
-		"Space toggle",
+		"Link your shared instructions into each harness.",
 		"Cancelled. No changes made.",
 	)
 	if result.cookedChecked && !result.cookedAfter {
@@ -632,13 +670,13 @@ func TestTerminalRestoredAfterSignal(t *testing.T) {
 		home:       home,
 		args:       []string{"--all"},
 		signal:     "TERM",
-		signalWait: "Space toggle",
+		signalWait: "Link your shared instructions into each harness.",
 	})
 
 	if result.exitCode != 0 {
 		t.Errorf("exit code = %d, want 0 (a graceful SIGTERM cancellation)\n--- output ---\n%s", result.exitCode, result.output)
 	}
-	result.assertContains(t, "Space toggle", "Cancelled. No changes made.")
+	result.assertContains(t, "Link your shared instructions into each harness.", "Cancelled. No changes made.")
 
 	// The renderer must exit the alternate screen and re-enable the cursor
 	// before the process ends.

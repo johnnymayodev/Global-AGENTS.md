@@ -68,9 +68,9 @@ consumers exec the `agent-links` binary.
 
 On first run, if `~/.config/agents/AGENTS.md` does not exist, the CLI asks
 whether to copy an existing instructions file (enter its path) or create a blank
-one. Use the arrow keys to move, Space to select harnesses, and Enter to review
-the plan; type `yes` to apply it. The one-shot runner opens this same picker by
-default.
+one. Use the arrow keys to move and Space to select harnesses; Enter shows the
+plan, and Enter again applies it. `esc` steps back, `ctrl+c` cancels, and `?`
+shows the full key help. The one-shot runner opens this same picker by default.
 
 ## Releases
 
