@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/main
 
 The runner downloads `agent-links-<target>` and its matching
 `checksums-<target>.txt` from the version pinned in `run.sh` (currently
-`v0.3.0`), verifies the executable's SHA-256 checksum, runs it from a private
+`v0.4.0`), verifies the executable's SHA-256 checksum, runs it from a private
 temporary directory, and removes that directory on exit. It forwards your
 arguments and working directory to the CLI. When stdout is a terminal it
 reconnects stdin from `/dev/tty`, so the full-screen wizard still works when the
@@ -37,9 +37,7 @@ profiles, or use `sudo`. It requires `curl`, `mktemp`, a SHA-256 utility
 
 The bootstrap requires that the pinned release and its assets already exist.
 The checksum detects a corrupted or mismatched download; because both files come
-from the same GitHub release, it is not an independent signature. This release
-predates shared skills support; build from source to use the skills features
-described below until the next release is tagged.
+from the same GitHub release, it is not an independent signature.
 
 ### Install or build from source
 
