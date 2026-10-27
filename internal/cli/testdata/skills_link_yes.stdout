@@ -1,0 +1,22 @@
+Link plan:
+  Create these symlinks (creating missing parent directories if needed):
+    ~/.config/opencode/skills/git-release -> ~/.config/agents/skills/git-release
+    ~/.agents/skills/git-release -> ~/.config/agents/skills/git-release
+    ~/.pi/agent/skills/git-release -> ~/.config/agents/skills/git-release
+    ~/.omp/agent/skills/git-release -> ~/.config/agents/skills/git-release
+    ~/.hermes/skills/git-release -> ~/.config/agents/skills/git-release
+    ~/.claude/skills/git-release -> ~/.config/agents/skills/git-release
+  Existing files and unrelated symlinks will not be overwritten.
+Type "yes" to create the 6 symlink(s) listed above: Confirmation received; creating 6 symlink(s).
+created directory ~/.config/opencode
+created symlink ~/.config/opencode/skills/git-release
+created directory ~/.agents
+created symlink ~/.agents/skills/git-release
+created directory ~/.pi
+created symlink ~/.pi/agent/skills/git-release
+created directory ~/.omp
+created symlink ~/.omp/agent/skills/git-release
+created directory ~/.hermes
+created symlink ~/.hermes/skills/git-release
+created directory ~/.claude
+created symlink ~/.claude/skills/git-release

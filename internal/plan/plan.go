@@ -1,5 +1,5 @@
 // Package plan builds and applies filesystem plans for linking the canonical
-// instructions file into harness targets.
+// instructions file and canonical skill directories into harness targets.
 package plan
 
 import (
@@ -131,49 +131,65 @@ func Reconcile(visible []harness.Harness, selected map[string]bool, ctx harness.
 	return ReconcilePlan{LinkPlan: linkPlan, UnlinkPlan: unlinkPlan}, nil
 }
 
+// linkTarget is one explicit source-to-destination filesystem mutation.
+type linkTarget struct {
+	Source string
+	Target string
+}
+
 // CreateLinks creates the given symlinks, logging progress to stdout. On
 // failure it logs the stop position to stderr and returns the error.
 func CreateLinks(targets []harness.Harness, ctx harness.Context, stdout, stderr io.Writer) error {
+	items := make([]linkTarget, 0, len(targets))
 	for _, h := range targets {
-		directoryCreationStarted, err := createOne(h, ctx, stdout)
+		items = append(items, linkTarget{Source: ctx.SourceFile, Target: h.Target})
+	}
+	return createTargets(items, ctx, stdout, stderr)
+}
+
+// createTargets creates every item, stopping at the first failure.
+func createTargets(items []linkTarget, ctx harness.Context, stdout, stderr io.Writer) error {
+	for _, item := range items {
+		directoryCreationStarted, err := createTarget(item, ctx, stdout)
 		if err != nil {
 			partial := ""
 			if directoryCreationStarted {
 				partial = " directory creation for this destination may be partial,"
 			}
-			fmt.Fprintf(stderr, "stopped at %s; earlier reported changes remain,%s and later destinations were not attempted.\n", h.Target, partial)
+			fmt.Fprintf(stderr, "stopped at %s; earlier reported changes remain,%s and later destinations were not attempted.\n", item.Target, partial)
 			return err
 		}
 	}
 	return nil
 }
 
-// createOne links one harness and reports whether parent-directory creation
-// for the destination had started before any failure.
-func createOne(h harness.Harness, ctx harness.Context, stdout io.Writer) (directoryCreationStarted bool, err error) {
-	state, err := harness.TargetState(h.Target, ctx.SourceFile)
+// createTarget links one explicit source to one destination and reports
+// whether parent-directory creation for the destination had started before
+// any failure.
+func createTarget(item linkTarget, ctx harness.Context, stdout io.Writer) (directoryCreationStarted bool, err error) {
+	state, err := harness.TargetState(item.Target, item.Source)
 	if err != nil {
 		return false, err
 	}
 	if state == harness.Managed {
-		fmt.Fprintf(stdout, "already linked %s\n", harness.DisplayPath(h.Target, ctx.Home))
+		fmt.Fprintf(stdout, "already linked %s\n", harness.DisplayPath(item.Target, ctx.Home))
 		return false, nil
 	}
 	if state != harness.Absent {
-		return false, fmt.Errorf("destination changed after planning; refusing to overwrite: %s", h.Target)
+		return false, fmt.Errorf("destination changed after planning; refusing to overwrite: %s", item.Target)
 	}
 
-	createdDir, err := mkdirParents(filepath.Dir(h.Target))
+	createdDir, err := mkdirParents(filepath.Dir(item.Target))
 	if err != nil {
 		return true, err
 	}
 	if createdDir != "" {
 		fmt.Fprintf(stdout, "created directory %s\n", harness.DisplayPath(createdDir, ctx.Home))
 	}
-	if err := createSymlink(ctx.SourceFile, h.Target); err != nil {
+	if err := createSymlink(item.Source, item.Target); err != nil {
 		return true, err
 	}
-	fmt.Fprintf(stdout, "created symlink %s\n", harness.DisplayPath(h.Target, ctx.Home))
+	fmt.Fprintf(stdout, "created symlink %s\n", harness.DisplayPath(item.Target, ctx.Home))
 	return true, nil
 }
 
@@ -225,30 +241,39 @@ func mkdirParents(dir string) (string, error) {
 // stdout. Entries that are no longer managed symlinks are left untouched. On
 // failure it logs the stop position to stderr and returns the error.
 func RemoveManagedLinks(targets []harness.Harness, ctx harness.Context, stdout, stderr io.Writer) error {
+	items := make([]linkTarget, 0, len(targets))
 	for _, h := range targets {
-		if err := removeOne(h, ctx, stdout); err != nil {
-			fmt.Fprintf(stderr, "stopped at %s; earlier reported removals remain, and later destinations were not attempted.\n", h.Target)
+		items = append(items, linkTarget{Source: ctx.SourceFile, Target: h.Target})
+	}
+	return removeTargets(items, ctx, stdout, stderr)
+}
+
+// removeTargets removes every item, stopping at the first failure.
+func removeTargets(items []linkTarget, ctx harness.Context, stdout, stderr io.Writer) error {
+	for _, item := range items {
+		if err := removeTarget(item, ctx, stdout); err != nil {
+			fmt.Fprintf(stderr, "stopped at %s; earlier reported removals remain, and later destinations were not attempted.\n", item.Target)
 			return err
 		}
 	}
 	return nil
 }
 
-func removeOne(h harness.Harness, ctx harness.Context, stdout io.Writer) error {
-	state, err := harness.TargetState(h.Target, ctx.SourceFile)
+func removeTarget(item linkTarget, ctx harness.Context, stdout io.Writer) error {
+	state, err := harness.TargetState(item.Target, item.Source)
 	if err != nil {
 		return err
 	}
 	switch state {
 	case harness.Managed:
-		if err := os.Remove(h.Target); err != nil {
+		if err := os.Remove(item.Target); err != nil {
 			return err
 		}
-		fmt.Fprintf(stdout, "removed managed symlink %s\n", harness.DisplayPath(h.Target, ctx.Home))
+		fmt.Fprintf(stdout, "removed managed symlink %s\n", harness.DisplayPath(item.Target, ctx.Home))
 	case harness.Absent:
-		fmt.Fprintf(stdout, "left untouched (already absent): %s\n", harness.DisplayPath(h.Target, ctx.Home))
+		fmt.Fprintf(stdout, "left untouched (already absent): %s\n", harness.DisplayPath(item.Target, ctx.Home))
 	default:
-		fmt.Fprintf(stdout, "left untouched (no longer a managed symlink): %s\n", harness.DisplayPath(h.Target, ctx.Home))
+		fmt.Fprintf(stdout, "left untouched (no longer a managed symlink): %s\n", harness.DisplayPath(item.Target, ctx.Home))
 	}
 	return nil
 }

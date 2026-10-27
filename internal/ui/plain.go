@@ -1,6 +1,6 @@
 // Package ui renders the interactive and plain-text user interface: the
-// canonical-file setup flow, the selection table, and the confirmation
-// prompts.
+// launch mode menu, the canonical-file setup flow, the instruction and skills
+// pickers, and the confirmation prompts.
 package ui
 
 import (

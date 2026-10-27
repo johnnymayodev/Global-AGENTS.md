@@ -1,5 +1,5 @@
-// Command agent-links links one shared AGENTS.md into supported AI coding
-// harnesses.
+// Command agent-links links shared instructions and portable Agent Skills into
+// supported AI coding harnesses.
 package main
 
 import (

@@ -412,6 +412,27 @@ func sourceFilePath(home string) string {
 	return filepath.Join(home, ".config", "agents", "AGENTS.md")
 }
 
+func skillsRoot(home string) string {
+	return filepath.Join(home, ".config", "agents", "skills")
+}
+
+// writeSkill creates a canonical skill directory with SKILL.md and one
+// supporting file, returning the skill directory.
+func writeSkill(t *testing.T, home, name string) string {
+	t.Helper()
+	dir := filepath.Join(skillsRoot(home), name)
+	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("# "+name+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "scripts", "run.sh"), []byte("#!/bin/sh\necho "+name+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func writeSource(t *testing.T, home string) string {
 	t.Helper()
 	source := sourceFilePath(home)
@@ -461,6 +482,7 @@ func TestPickerReviewConfirm(t *testing.T) {
 		home: home,
 		args: []string{"--all"},
 		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "1"},
 			{wait: "Link your shared instructions into each harness.", send: " \r"},
 			{wait: "Apply this plan?", send: "\r"},
 		},
@@ -487,6 +509,162 @@ func TestPickerReviewConfirm(t *testing.T) {
 	}
 }
 
+func TestSkillsLaunchLinkTwoCellsThenRemoveOne(t *testing.T) {
+	home := t.TempDir()
+	alpha := writeSkill(t, home, "alpha")
+	beta := writeSkill(t, home, "beta")
+
+	// A pre-existing harness-specific skill must survive both flows.
+	localOnly := filepath.Join(home, ".pi", "agent", "skills", "local-only")
+	if err := os.MkdirAll(localOnly, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localOnly, "SKILL.md"), []byte("# local\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runTUI(t, tuiSpec{
+		home: home,
+		args: []string{"--all"},
+		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "2"},
+			// alpha/opencode, then beta/codex, then review.
+			{wait: "Link your shared skills into each harness.", send: " jl \r"},
+			{wait: "Apply this plan?", send: "\r"},
+		},
+	})
+	if result.exitCode != 0 {
+		t.Errorf("first run exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
+	}
+	result.assertContains(t,
+		"Link your shared skills into each harness.",
+		"Apply plan:",
+		"create 2 symlink(s)",
+		"created symlink ~/.config/opencode/skills/alpha",
+		"created symlink ~/.agents/skills/beta",
+	)
+	if result.cookedChecked && !result.cookedAfter {
+		t.Error("the terminal was left in raw mode after linking skills")
+	}
+
+	opencodeAlpha := filepath.Join(home, ".config", "opencode", "skills", "alpha")
+	codexBeta := filepath.Join(home, ".agents", "skills", "beta")
+	for target, source := range map[string]string{opencodeAlpha: alpha, codexBeta: beta} {
+		link, err := os.Readlink(target)
+		if err != nil || link != source {
+			t.Errorf("%s symlink = %q, %v; want %s", target, link, err, source)
+		}
+	}
+	// Exactly two cells, never the four-cell cross product.
+	for _, target := range []string{
+		filepath.Join(home, ".config", "opencode", "skills", "beta"),
+		filepath.Join(home, ".agents", "skills", "alpha"),
+		filepath.Join(home, ".pi", "agent", "skills", "alpha"),
+		filepath.Join(home, ".claude", "skills", "alpha"),
+	} {
+		if _, err := os.Lstat(target); err == nil {
+			t.Errorf("unexpected cross-product link: %s", target)
+		}
+	}
+
+	// Supporting files are reachable through the linked directory.
+	contents, err := os.ReadFile(filepath.Join(opencodeAlpha, "scripts", "run.sh"))
+	if err != nil || !strings.Contains(string(contents), "alpha") {
+		t.Fatalf("supporting file through the link = %q, %v", contents, err)
+	}
+
+	second := runTUI(t, tuiSpec{
+		home: home,
+		args: []string{"skills", "--all"},
+		steps: []tuiStep{
+			// The matrix starts with both managed cells selected; deselect
+			// alpha/opencode only, then review.
+			{wait: "Link your shared skills into each harness.", send: " \r"},
+			{wait: "Apply this plan?", send: "\r"},
+		},
+	})
+	if second.exitCode != 0 {
+		t.Errorf("second run exit code = %d, want 0\n--- output ---\n%s", second.exitCode, second.output)
+	}
+	second.assertContains(t,
+		"remove 1 managed symlink(s)",
+		"removed managed symlink ~/.config/opencode/skills/alpha",
+	)
+	if second.cookedChecked && !second.cookedAfter {
+		t.Error("the terminal was left in raw mode after unlinking a skill")
+	}
+
+	if _, err := os.Lstat(opencodeAlpha); err == nil {
+		t.Error("the deselected skill link still exists")
+	}
+	if link, err := os.Readlink(codexBeta); err != nil || link != beta {
+		t.Errorf("the other skill link was disturbed: %q, %v", link, err)
+	}
+	if _, err := os.Stat(filepath.Join(alpha, "SKILL.md")); err != nil {
+		t.Errorf("canonical skill content was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(localOnly, "SKILL.md")); err != nil {
+		t.Errorf("an unrelated harness-specific skill was removed: %v", err)
+	}
+}
+
+func TestSkillsModeIgnoresBrokenInstructionsSource(t *testing.T) {
+	home := t.TempDir()
+	alpha := writeSkill(t, home, "alpha")
+	// A directory at the canonical instructions path is an error for the
+	// instructions source, but must not block skills mode.
+	if err := os.MkdirAll(sourceFilePath(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runTUI(t, tuiSpec{
+		home: home,
+		args: []string{"--all"},
+		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "2"},
+			{wait: "Link your shared skills into each harness.", send: " \r"},
+			{wait: "Apply this plan?", send: "\r"},
+		},
+	})
+	if result.exitCode != 0 {
+		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
+	}
+	result.assertContains(t, "created symlink ~/.config/opencode/skills/alpha")
+	if link, err := os.Readlink(filepath.Join(home, ".config", "opencode", "skills", "alpha")); err != nil || link != alpha {
+		t.Errorf("skill link = %q, %v; want %s", link, err, alpha)
+	}
+}
+
+func TestInstructionsModeIgnoresBrokenSkillsSource(t *testing.T) {
+	home := t.TempDir()
+	source := writeSource(t, home)
+	// A regular file at the skills root is an error for the skills source,
+	// but must not block instructions mode.
+	if err := os.MkdirAll(filepath.Join(home, ".config", "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".config", "agents", "skills"), []byte("not a directory\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runTUI(t, tuiSpec{
+		home: home,
+		args: []string{"--all"},
+		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "1"},
+			{wait: "Link your shared instructions into each harness.", send: " \r"},
+			{wait: "Apply this plan?", send: "\r"},
+		},
+	})
+	if result.exitCode != 0 {
+		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
+	}
+	result.assertContains(t, "created symlink ~/.config/opencode/AGENTS.md")
+	if link, err := os.Readlink(filepath.Join(home, ".config", "opencode", "AGENTS.md")); err != nil || link != source {
+		t.Errorf("instructions link = %q, %v; want %s", link, err, source)
+	}
+}
+
 func TestPickerReviewCancelAtReview(t *testing.T) {
 	home := t.TempDir()
 	writeSource(t, home)
@@ -495,6 +673,7 @@ func TestPickerReviewCancelAtReview(t *testing.T) {
 		home: home,
 		args: []string{"--all"},
 		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "1"},
 			{wait: "Link your shared instructions into each harness.", send: " \r"},
 			{wait: "Apply this plan?", send: "\x03"},
 		},
@@ -524,6 +703,7 @@ func TestPickerSetupThenReview(t *testing.T) {
 		home: home,
 		args: []string{"--all"},
 		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "1"},
 			{wait: "Create a blank AGENTS.md", send: "2"},
 			{wait: "Link your shared instructions into each harness.", send: " \r"},
 			{wait: "Apply this plan?", send: "\r"},
@@ -597,8 +777,10 @@ func TestSetupCopy(t *testing.T) {
 	result := runTUI(t, tuiSpec{
 		home: home,
 		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "1"},
 			{wait: "Copy an existing instructions file", send: "1"},
-			{wait: "Path to the existing instructions file", send: selected + "\r"},
+			{wait: "Path to the existing instructions file", send: selected},
+			{wait: "✓ file exists", send: "\r"},
 		},
 	})
 
@@ -643,6 +825,7 @@ func TestPipedScriptReachesPicker(t *testing.T) {
 		steps: []tuiStep{
 			// Esc cancels the picker; it is safe to pre-feed on the
 			// script(1) path because it is a plain byte, not a signal.
+			{wait: "What do you want to manage?", send: "1"},
 			{wait: "Link your shared instructions into each harness.", send: "\x1b"},
 		},
 	})
@@ -669,6 +852,7 @@ func TestTerminalRestoredAfterSignal(t *testing.T) {
 	result := runTUI(t, tuiSpec{
 		home:       home,
 		args:       []string{"--all"},
+		steps:      []tuiStep{{wait: "What do you want to manage?", send: "1"}},
 		signal:     "TERM",
 		signalWait: "Link your shared instructions into each harness.",
 	})
