@@ -7,22 +7,27 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/x/term"
 	"github.com/johnnymayodev/Global-AGENTS.md/internal/harness"
 	"github.com/johnnymayodev/Global-AGENTS.md/internal/plan"
+	"github.com/johnnymayodev/Global-AGENTS.md/internal/skill"
 	"github.com/johnnymayodev/Global-AGENTS.md/internal/ui"
 )
 
-// usage is the ported printUsage() text, printed for --help and unknown
-// arguments.
+// usage is printed for --help and unknown arguments.
 const usage = `usage:
-  agent-links                 choose detected harnesses interactively
-  agent-links --all           choose from all supported harnesses
-  agent-links --list [--all]  print the detected (or all) harnesses
-  agent-links link            preview and confirm linking all supported harnesses
-  agent-links unlink          preview and confirm removal of managed links`
+  agent-links                          choose instructions or skills, then harnesses
+  agent-links --all                    choose instructions or skills, then all harnesses
+  agent-links --list [--all]           print the detected (or all) instruction targets
+  agent-links link                     preview and confirm linking all supported harnesses
+  agent-links unlink                   preview and confirm removal of managed links
+  agent-links skills [--all]           manage shared skills for detected (or all) harnesses
+  agent-links skills --list [--all]    print the shared skills matrix
+  agent-links skills link <skill>      preview and confirm linking one skill
+  agent-links skills unlink <skill>    preview and confirm unlinking one skill`
 
 // Options injects the process environment and streams. Run fills them from
 // the real process; tests inject their own.
@@ -75,13 +80,15 @@ func RunWith(args []string, opts Options) int {
 	var runErr error
 	switch {
 	case len(args) == 0 || (len(args) == 1 && args[0] == "--all"):
-		runErr = pickerFlow(ctx, prompt, len(args) == 1 && args[0] == "--all")
+		runErr = launchFlow(ctx, prompt, len(args) == 1 && args[0] == "--all")
 	case args[0] == "--list" && (len(args) == 1 || (len(args) == 2 && args[1] == "--all")):
 		runErr = listFlow(ctx, prompt, len(args) == 2)
 	case len(args) == 1 && args[0] == "link":
 		runErr = linkFlow(ctx, prompt)
 	case len(args) == 1 && args[0] == "unlink":
 		runErr = unlinkFlow(ctx, prompt)
+	case args[0] == "skills" && validSkillsArgs(args[1:]):
+		runErr = skillsFlowDispatch(ctx, prompt, args[1:])
 	default:
 		fmt.Fprintln(opts.Stdout, usage)
 		return 2
@@ -92,18 +99,147 @@ func RunWith(args []string, opts Options) int {
 	return 0
 }
 
+// validSkillsArgs reports whether the arguments after "skills" name a known
+// subcommand combination.
+func validSkillsArgs(args []string) bool {
+	switch {
+	case len(args) == 0:
+		return true
+	case len(args) == 1:
+		return args[0] == "--all" || args[0] == "--list"
+	case len(args) == 2:
+		if args[0] == "--list" {
+			return args[1] == "--all"
+		}
+		return args[0] == "link" || args[0] == "unlink"
+	default:
+		return false
+	}
+}
+
 func fail(stderr io.Writer, err error) int {
 	fmt.Fprintf(stderr, "error: %v\n", err)
 	return 1
 }
 
-// pickerFlow mirrors the no-args and --all flows: ensure the source file,
-// pick harnesses, then reconcile the selection.
-func pickerFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
+// launchFlow offers the instruction and skills modes, then runs the chosen
+// flow.
+func launchFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
 	if p.Interactive {
-		return pickerFlowTUI(ctx, p, showAll)
+		return launchFlowTUI(ctx, p, showAll)
 	}
-	return pickerFlowPlain(ctx, p, showAll)
+	return launchFlowPlain(ctx, p, showAll)
+}
+
+func launchFlowPlain(ctx harness.Context, p ui.Prompter, showAll bool) error {
+	fmt.Fprintln(p.Out, "What do you want to manage?")
+	for {
+		choice, ok := p.Ask("Choose: [1] global instructions (AGENTS.md)  [2] global skills (SKILL.md)  [q] cancel: ")
+		if !ok {
+			fmt.Fprintln(p.Out, "Cancelled. No changes made.")
+			return nil
+		}
+		switch strings.ToLower(strings.TrimSpace(choice)) {
+		case "q":
+			fmt.Fprintln(p.Out, "Cancelled. No changes made.")
+			return nil
+		case "1":
+			return pickerFlowPlain(ctx, p, showAll)
+		case "2":
+			return skillsFlowPlain(ctx, p, showAll)
+		default:
+			fmt.Fprintln(p.Out, `Enter "1" to manage global instructions, "2" to manage global skills, or "q" to cancel.`)
+		}
+	}
+}
+
+func launchFlowTUI(ctx harness.Context, p ui.Prompter, showAll bool) error {
+	var instructionsErr error
+	exists, err := harness.SourceFileExists(ctx)
+	if err != nil {
+		instructionsErr = err
+	}
+	var visibleInstructions []harness.Harness
+	var current map[string]bool
+	if instructionsErr == nil {
+		visibleInstructions, err = harness.Visible(ctx, showAll)
+		if err != nil {
+			instructionsErr = err
+		} else {
+			current, err = managedSelection(visibleInstructions, ctx)
+			if err != nil {
+				instructionsErr = err
+			}
+		}
+	}
+
+	var skillsErr error
+	var skills []skill.Skill
+	var matrix ui.SkillsMatrix
+	skills, err = skill.Discover(ctx.SourceSkillsDir)
+	if err != nil {
+		skillsErr = err
+	} else {
+		visibleSkills, err := harness.VisibleSkills(ctx, showAll)
+		if err != nil {
+			skillsErr = err
+		} else {
+			matrix, err = buildSkillsMatrix(ctx, skills, visibleSkills)
+			if err != nil {
+				skillsErr = err
+			}
+		}
+	}
+
+	result, err := ui.RunWizard(ui.WizardFlow{
+		Harnesses:         visibleInstructions,
+		Ctx:               ctx,
+		Initial:           current,
+		Setup:             instructionsErr == nil && !exists,
+		Review:            reconcileReview(visibleInstructions, ctx, p),
+		Launch:            true,
+		InstructionsError: instructionsErr,
+		SkillsError:       skillsErr,
+		Skills:            &matrix,
+		SkillsReview:      skillsReconcileReview(matrix, ctx, p),
+	})
+	if err != nil {
+		return err
+	}
+	for _, notice := range result.Notices {
+		fmt.Fprintln(p.Out, notice)
+	}
+
+	if result.ModeChosen && result.Mode == ui.ModeSkills && result.NoChanges {
+		if len(skills) == 0 {
+			printNoSkills(ctx, p.Out)
+			return nil
+		}
+		if len(matrix.Harnesses) == 0 {
+			return printNoSkillsHarnesses(matrix, ctx, p.Out)
+		}
+	}
+	if result.ModeChosen && result.Mode == ui.ModeInstructions && len(visibleInstructions) == 0 {
+		table, err := ui.RenderTable(visibleInstructions, ctx, current, -1)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(p.Out, table)
+		fmt.Fprintln(p.Out, "No supported harnesses were detected. Use `agent-links --all` to show every supported target.")
+		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
+		return nil
+	}
+
+	switch {
+	case result.Cancelled:
+		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
+	case result.NoChanges:
+		fmt.Fprintln(p.Out, "No changes made.")
+	case result.Applied:
+		fmt.Fprintln(p.Out, result.Review.Summary)
+		return result.Review.Apply()
+	}
+	return nil
 }
 
 // pickerFlowPlain prints the table and the non-interactive notice; choosing
@@ -318,6 +454,360 @@ func reconcileReview(visible []harness.Harness, ctx harness.Context, p ui.Prompt
 			},
 		}, true, nil
 	}
+}
+
+// skillsReconcileReview builds the review for a matrix selection.
+func skillsReconcileReview(matrix ui.SkillsMatrix, ctx harness.Context, p ui.Prompter) func(map[string]bool) (ui.Review, bool, error) {
+	return func(selected map[string]bool) (ui.Review, bool, error) {
+		cells := matrixPlanCells(matrix)
+		skillsPlan, err := plan.SkillReconcile(cells, selected)
+		if err != nil {
+			return ui.Review{}, false, err
+		}
+		if len(skillsPlan.ToCreate) == 0 && len(skillsPlan.ToRemove) == 0 {
+			return ui.Review{}, false, nil
+		}
+
+		var changes []string
+		if len(skillsPlan.ToCreate) > 0 {
+			changes = append(changes, fmt.Sprintf("create %d symlink(s)", len(skillsPlan.ToCreate)))
+		}
+		if len(skillsPlan.ToRemove) > 0 {
+			changes = append(changes, fmt.Sprintf("remove %d managed symlink(s)", len(skillsPlan.ToRemove)))
+		}
+		summary := strings.Join(changes, " and ")
+
+		return ui.Review{
+			Text:    plan.RenderSkillsReconcilePlan(skillsPlan, ctx),
+			Summary: fmt.Sprintf("Confirmation received; applying plan (%s).", summary),
+			Apply: func() error {
+				return plan.ApplySkills(skillsPlan, ctx, p.Out, p.Err)
+			},
+		}, true, nil
+	}
+}
+
+// skillsFlowDispatcher routes the arguments after "skills".
+func skillsFlowDispatch(ctx harness.Context, p ui.Prompter, args []string) error {
+	switch {
+	case len(args) == 0:
+		return skillsFlow(ctx, p, false)
+	case len(args) == 1 && args[0] == "--all":
+		return skillsFlow(ctx, p, true)
+	case len(args) == 1 && args[0] == "--list":
+		return skillsListFlow(ctx, p, false)
+	case len(args) == 2 && args[0] == "--list":
+		return skillsListFlow(ctx, p, true)
+	case len(args) == 2 && args[0] == "link":
+		return skillsLinkFlow(ctx, p, args[1])
+	case len(args) == 2 && args[0] == "unlink":
+		return skillsUnlinkFlow(ctx, p, args[1])
+	}
+	return nil
+}
+
+// skillsFlow runs the interactive skills matrix.
+func skillsFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
+	skills, err := skill.Discover(ctx.SourceSkillsDir)
+	if err != nil {
+		return err
+	}
+	if len(skills) == 0 {
+		printNoSkills(ctx, p.Out)
+		return nil
+	}
+
+	visible, err := harness.VisibleSkills(ctx, showAll)
+	if err != nil {
+		return err
+	}
+	matrix, err := buildSkillsMatrix(ctx, skills, visible)
+	if err != nil {
+		return err
+	}
+
+	if !p.Interactive {
+		table, err := ui.RenderSkillsTable(matrix, ctx, managedSkillSelection(matrix))
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(p.Out, table)
+		if len(visible) == 0 {
+			fmt.Fprintln(p.Out, "No supported harnesses were detected. Use `agent-links skills --all` to show every supported target.")
+		}
+		fmt.Fprintln(p.Out, "Interactive selection needs a terminal; no changes made.")
+		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
+		return nil
+	}
+
+	if len(visible) == 0 {
+		table, err := ui.RenderSkillsTable(matrix, ctx, managedSkillSelection(matrix))
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(p.Out, table)
+		fmt.Fprintln(p.Out, "No supported harnesses were detected. Use `agent-links skills --all` to show every supported target.")
+		fmt.Fprintln(p.Out, "No changes made.")
+		return nil
+	}
+
+	result, err := ui.RunWizard(ui.WizardFlow{
+		Ctx:          ctx,
+		Mode:         ui.ModeSkills,
+		Skills:       &matrix,
+		SkillsReview: skillsReconcileReview(matrix, ctx, p),
+	})
+	if err != nil {
+		return err
+	}
+	for _, notice := range result.Notices {
+		fmt.Fprintln(p.Out, notice)
+	}
+	switch {
+	case result.Cancelled:
+		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
+	case result.NoChanges:
+		fmt.Fprintln(p.Out, "No changes made.")
+	case result.Applied:
+		fmt.Fprintln(p.Out, result.Review.Summary)
+		return result.Review.Apply()
+	}
+	return nil
+}
+
+// skillsFlowPlain prints the read-only skills matrix when no terminal is
+// available.
+func skillsFlowPlain(ctx harness.Context, p ui.Prompter, showAll bool) error {
+	skills, err := skill.Discover(ctx.SourceSkillsDir)
+	if err != nil {
+		return err
+	}
+	if len(skills) == 0 {
+		printNoSkills(ctx, p.Out)
+		return nil
+	}
+	visible, err := harness.VisibleSkills(ctx, showAll)
+	if err != nil {
+		return err
+	}
+	matrix, err := buildSkillsMatrix(ctx, skills, visible)
+	if err != nil {
+		return err
+	}
+	table, err := ui.RenderSkillsTable(matrix, ctx, managedSkillSelection(matrix))
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(p.Out, table)
+	if len(visible) == 0 {
+		fmt.Fprintln(p.Out, "No supported harnesses were detected. Use `agent-links skills --all` to show every supported target.")
+	}
+	fmt.Fprintln(p.Out, "Interactive selection needs a terminal; no changes made.")
+	fmt.Fprintln(p.Out, "Cancelled. No changes made.")
+	return nil
+}
+
+// skillsListFlow prints the read-only skills matrix.
+func skillsListFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
+	skills, err := skill.Discover(ctx.SourceSkillsDir)
+	if err != nil {
+		return err
+	}
+	if len(skills) == 0 {
+		printNoSkills(ctx, p.Out)
+		return nil
+	}
+	visible, err := harness.VisibleSkills(ctx, showAll)
+	if err != nil {
+		return err
+	}
+	matrix, err := buildSkillsMatrix(ctx, skills, visible)
+	if err != nil {
+		return err
+	}
+	table, err := ui.RenderSkillsTable(matrix, ctx, managedSkillSelection(matrix))
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(p.Out, table)
+	if len(visible) == 0 {
+		fmt.Fprintln(p.Out, "No supported harnesses were detected. Use `agent-links skills --all` to show every supported target.")
+	}
+	return nil
+}
+
+// skillsLinkFlow links one named skill into every supported harness.
+func skillsLinkFlow(ctx harness.Context, p ui.Prompter, name string) error {
+	s, err := skill.Find(ctx.SourceSkillsDir, name)
+	if err != nil {
+		return err
+	}
+	cells := skillCells([]skill.Skill{s}, ctx.Harnesses, true)
+	skillsPlan, err := plan.SkillLinks(cells)
+	if err != nil {
+		return err
+	}
+	planText := plan.RenderSkillLinkPlan(skillsPlan, ctx)
+	if len(skillsPlan.ToCreate) == 0 {
+		fmt.Fprintln(p.Out, planText)
+		fmt.Fprintln(p.Out, "No changes made.")
+		return nil
+	}
+
+	confirmed, err := p.Confirm(
+		planText,
+		fmt.Sprintf(`Type "yes" to create the %d symlink(s) listed above: `, len(skillsPlan.ToCreate)),
+		fmt.Sprintf("Confirmation received; creating %d symlink(s).", len(skillsPlan.ToCreate)),
+		"",
+	)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		return nil
+	}
+	return plan.CreateSkillLinks(skillsPlan.ToCreate, ctx, p.Out, p.Err)
+}
+
+// skillsUnlinkFlow removes one named skill's managed links. The source need
+// not exist, and reserved names can still be cleaned up.
+func skillsUnlinkFlow(ctx harness.Context, p ui.Prompter, name string) error {
+	if err := skill.ValidateName(name); err != nil {
+		return err
+	}
+	s := skill.Skill{Name: name, SourceDir: filepath.Join(ctx.SourceSkillsDir, name)}
+	cells := skillCells([]skill.Skill{s}, ctx.Harnesses, false)
+	skillsPlan, err := plan.SkillUnlinks(cells)
+	if err != nil {
+		return err
+	}
+	planText := plan.RenderSkillUnlinkPlan(skillsPlan, ctx)
+	if len(skillsPlan.ToRemove) == 0 {
+		fmt.Fprintln(p.Out, planText)
+		fmt.Fprintln(p.Out, "No changes made.")
+		return nil
+	}
+
+	confirmed, err := p.Confirm(
+		planText,
+		fmt.Sprintf(`Type "yes" to remove the %d managed symlink(s) listed above: `, len(skillsPlan.ToRemove)),
+		fmt.Sprintf("Confirmation received; removing %d managed symlink(s).", len(skillsPlan.ToRemove)),
+		"removal requires interactive confirmation; no changes made",
+	)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		return nil
+	}
+	return plan.RemoveManagedSkillLinks(skillsPlan.ToRemove, ctx, p.Out, p.Err)
+}
+
+// buildSkillsMatrix classifies every skill/harness cell and selects the
+// destinations that are already managed.
+func buildSkillsMatrix(ctx harness.Context, skills []skill.Skill, harnesses []harness.Harness) (ui.SkillsMatrix, error) {
+	matrix := ui.SkillsMatrix{
+		Skills:    make([]string, 0, len(skills)),
+		Harnesses: harnesses,
+		Cells:     make(map[string]ui.MatrixCell),
+		Initial:   make(map[string]bool),
+	}
+	for _, s := range skills {
+		matrix.Skills = append(matrix.Skills, s.Name)
+		for _, h := range harnesses {
+			target := filepath.Join(h.SkillsDir, s.Name)
+			state, err := harness.TargetState(target, s.SourceDir)
+			if err != nil {
+				return ui.SkillsMatrix{}, err
+			}
+			cell := ui.MatrixCell{
+				Skill:       s.Name,
+				HarnessID:   h.ID,
+				HarnessName: h.Name,
+				Source:      s.SourceDir,
+				Target:      target,
+				State:       state,
+				Unavailable: harness.SkillUnavailableReason(h, s.Name),
+			}
+			matrix.Cells[cell.Key()] = cell
+			if state == harness.Managed {
+				matrix.Initial[cell.Key()] = true
+			}
+		}
+	}
+	return matrix, nil
+}
+
+// managedSkillSelection collects cells whose destination is already a managed
+// link.
+func managedSkillSelection(matrix ui.SkillsMatrix) map[string]bool {
+	selected := make(map[string]bool)
+	for key, cell := range matrix.Cells {
+		if cell.State == harness.Managed {
+			selected[key] = true
+		}
+	}
+	return selected
+}
+
+// matrixPlanCells converts a matrix into plan cells in stable row-major order.
+func matrixPlanCells(matrix ui.SkillsMatrix) []plan.SkillCell {
+	cells := make([]plan.SkillCell, 0, len(matrix.Cells))
+	for _, skillName := range matrix.Skills {
+		for _, h := range matrix.Harnesses {
+			cell, ok := matrix.Cell(skillName, h.ID)
+			if !ok {
+				continue
+			}
+			cells = append(cells, plan.SkillCell{
+				Skill:       cell.Skill,
+				HarnessID:   cell.HarnessID,
+				HarnessName: cell.HarnessName,
+				Source:      cell.Source,
+				Target:      cell.Target,
+				Unavailable: harness.SkillUnavailableReason(h, skillName),
+			})
+		}
+	}
+	return cells
+}
+
+// skillCells builds plan cells for one or more skills across harnesses.
+func skillCells(skills []skill.Skill, harnesses []harness.Harness, withAvailability bool) []plan.SkillCell {
+	cells := make([]plan.SkillCell, 0, len(skills)*len(harnesses))
+	for _, s := range skills {
+		for _, h := range harnesses {
+			cell := plan.SkillCell{
+				Skill:       s.Name,
+				HarnessID:   h.ID,
+				HarnessName: h.Name,
+				Source:      s.SourceDir,
+				Target:      filepath.Join(h.SkillsDir, s.Name),
+			}
+			if withAvailability {
+				cell.Unavailable = harness.SkillUnavailableReason(h, s.Name)
+			}
+			cells = append(cells, cell)
+		}
+	}
+	return cells
+}
+
+func printNoSkills(ctx harness.Context, out io.Writer) {
+	fmt.Fprintf(out, "No shared skills found at %s.\n", harness.DisplayPath(ctx.SourceSkillsDir, ctx.Home))
+	fmt.Fprintln(out, "Add <skill-name>/SKILL.md (plus any supporting files), then rerun agent-links.")
+	fmt.Fprintln(out, "No changes made.")
+}
+
+func printNoSkillsHarnesses(matrix ui.SkillsMatrix, ctx harness.Context, out io.Writer) error {
+	table, err := ui.RenderSkillsTable(matrix, ctx, managedSkillSelection(matrix))
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(out, table)
+	fmt.Fprintln(out, "No supported harnesses were detected. Use `agent-links skills --all` to show every supported target.")
+	fmt.Fprintln(out, "No changes made.")
+	return nil
 }
 
 // managedSelection collects the IDs whose target is already a managed link.

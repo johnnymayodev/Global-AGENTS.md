@@ -348,7 +348,7 @@ func TestWizardViewAndHelp(t *testing.T) {
 	if !view.AltScreen {
 		t.Error("wizard view is not declared as an alternate screen view")
 	}
-	for _, want := range []string{"Global AGENTS.md", "Harness", "Installed", "Global instructions", "Alpha"} {
+	for _, want := range []string{"agent-links", "Harness", "Installed", "Global instructions", "Alpha"} {
 		if !strings.Contains(viewText(m), want) {
 			t.Errorf("view is missing %q:\n%s", want, viewText(m))
 		}

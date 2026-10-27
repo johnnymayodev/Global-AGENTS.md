@@ -1,5 +1,5 @@
 // Package harness resolves the supported AI coding harnesses and their
-// global instructions targets from the process environment.
+// global instructions and skills targets from the process environment.
 package harness
 
 import (
@@ -13,23 +13,26 @@ import (
 )
 
 // Harness is one supported AI coding harness and where it reads its global
-// instructions from.
+// instructions and skills from.
 type Harness struct {
 	ID          string
 	Name        string
 	Target      string
+	SkillsDir   string
 	Executables []string
 	InstallDirs []string
 }
 
 // Context is the resolved environment shared by every command: the home
-// directory, the canonical shared instructions file, the Codex home (needed
-// for the AGENTS.override.md note) and every supported harness.
+// directory, the canonical shared instructions file and skills directory,
+// the Codex home (needed for the AGENTS.override.md note) and every supported
+// harness.
 type Context struct {
-	Home       string
-	SourceFile string
-	CodexHome  string
-	Harnesses  []Harness
+	Home            string
+	SourceFile      string
+	SourceSkillsDir string
+	CodexHome       string
+	Harnesses       []Harness
 
 	path string // PATH captured when the context was built
 	cwd  string // working directory captured when the context was built
@@ -74,6 +77,7 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 	}
 
 	sourceFile := filepath.Join(home, ".config", "agents", "AGENTS.md")
+	sourceSkillsDir := filepath.Join(home, ".config", "agents", "skills")
 	codexHome := absoluteFrom(envOr("CODEX_HOME", filepath.Join(home, ".codex")), cwd)
 	hermesHome := absoluteFrom(envOr("HERMES_HOME", filepath.Join(home, ".hermes")), cwd)
 
@@ -105,6 +109,7 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 			ID:          "opencode",
 			Name:        "OpenCode",
 			Target:      filepath.Join(home, ".config", "opencode", "AGENTS.md"),
+			SkillsDir:   filepath.Join(home, ".config", "opencode", "skills"),
 			Executables: []string{"opencode"},
 			InstallDirs: []string{filepath.Join(home, ".config", "opencode")},
 		},
@@ -112,6 +117,7 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 			ID:          "codex",
 			Name:        "Codex",
 			Target:      filepath.Join(codexHome, "AGENTS.md"),
+			SkillsDir:   filepath.Join(home, ".agents", "skills"),
 			Executables: []string{"codex"},
 			InstallDirs: []string{codexHome},
 		},
@@ -119,6 +125,7 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 			ID:          "pi",
 			Name:        "Pi",
 			Target:      filepath.Join(home, ".pi", "agent", "AGENTS.md"),
+			SkillsDir:   filepath.Join(home, ".pi", "agent", "skills"),
 			Executables: []string{"pi"},
 			InstallDirs: []string{filepath.Join(home, ".pi", "agent")},
 		},
@@ -126,6 +133,7 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 			ID:          "omp",
 			Name:        "OMP",
 			Target:      filepath.Join(ompAgentDir, "AGENTS.md"),
+			SkillsDir:   filepath.Join(ompAgentDir, "skills"),
 			Executables: []string{"omp", "oh-my-pi"},
 			InstallDirs: []string{ompAgentDir, ompConfigRoot},
 		},
@@ -133,6 +141,7 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 			ID:          "hermes",
 			Name:        "Hermes Agent",
 			Target:      filepath.Join(hermesHome, "AGENTS.md"),
+			SkillsDir:   filepath.Join(hermesHome, "skills"),
 			Executables: []string{"hermes"},
 			InstallDirs: []string{hermesHome},
 		},
@@ -140,6 +149,7 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 			ID:          "claude",
 			Name:        "Claude Code",
 			Target:      filepath.Join(home, ".claude", "CLAUDE.md"),
+			SkillsDir:   filepath.Join(home, ".claude", "skills"),
 			Executables: []string{"claude"},
 			InstallDirs: []string{filepath.Join(home, ".claude")},
 		},
@@ -147,12 +157,13 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 
 	path, _ := lookup("PATH")
 	return Context{
-		Home:       home,
-		SourceFile: sourceFile,
-		CodexHome:  codexHome,
-		Harnesses:  harnesses,
-		path:       path,
-		cwd:        cwd,
+		Home:            home,
+		SourceFile:      sourceFile,
+		SourceSkillsDir: sourceSkillsDir,
+		CodexHome:       codexHome,
+		Harnesses:       harnesses,
+		path:            path,
+		cwd:             cwd,
 	}, nil
 }
 
@@ -209,9 +220,9 @@ func AssertSourceFile(ctx Context) error {
 	return nil
 }
 
-// TargetState classifies the filesystem entry at target relative to
-// sourceFile.
-func TargetState(target, sourceFile string) (State, error) {
+// TargetState classifies the filesystem entry at target relative to source,
+// which may be a file or a directory.
+func TargetState(target, source string) (State, error) {
 	info, err := os.Lstat(target)
 	if err != nil {
 		if MissingPath(err) {
@@ -225,7 +236,7 @@ func TargetState(target, sourceFile string) (State, error) {
 		if err != nil {
 			return "", err
 		}
-		if dest == sourceFile {
+		if dest == source {
 			return Managed, nil
 		}
 		return Symlink, nil
@@ -332,6 +343,80 @@ func Visible(ctx Context, showAll bool) ([]Harness, error) {
 		}
 	}
 	return visible, nil
+}
+
+// VisibleSkills returns the harnesses to show in the skills matrix. In
+// detected mode a harness counts as present when it is installed or when its
+// skills directory already holds a link managed by this tool.
+func VisibleSkills(ctx Context, showAll bool) ([]Harness, error) {
+	if showAll {
+		return ctx.Harnesses, nil
+	}
+	var visible []Harness
+	for _, h := range ctx.Harnesses {
+		installed, err := IsInstalled(h, ctx)
+		if err != nil {
+			return nil, err
+		}
+		if !installed {
+			installed, err = hasManagedSkillLink(h, ctx)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if installed {
+			visible = append(visible, h)
+		}
+	}
+	return visible, nil
+}
+
+// hasManagedSkillLink reports whether h's skills directory contains a symlink
+// pointing at a skill directory under the canonical shared skills root.
+func hasManagedSkillLink(h Harness, ctx Context) (bool, error) {
+	if h.SkillsDir == "" {
+		return false, nil
+	}
+	entries, err := os.ReadDir(h.SkillsDir)
+	if err != nil {
+		if MissingPath(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, entry := range entries {
+		if entry.Type()&fs.ModeSymlink == 0 {
+			continue
+		}
+		target := filepath.Join(h.SkillsDir, entry.Name())
+		dest, err := os.Readlink(target)
+		if err != nil {
+			if MissingPath(err) {
+				continue
+			}
+			return false, err
+		}
+		if dest == filepath.Join(ctx.SourceSkillsDir, entry.Name()) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// SkillUnavailableReason reports why a harness cannot accept a skill name, or
+// "" when the pair is allowed. Only Claude Code reserves skill names.
+func SkillUnavailableReason(h Harness, name string) string {
+	if h.ID != "claude" {
+		return ""
+	}
+	lower := strings.ToLower(name)
+	switch {
+	case lower == "synced":
+		return `Claude reserves the name "synced" for skills synced from claude.ai`
+	case lower == "anthropic-skills" || strings.HasPrefix(lower, "anthropic-skills:"):
+		return `Claude reserves the "anthropic-skills" namespace for synced skills`
+	}
+	return ""
 }
 
 // absoluteFrom resolves value against base when it is not already absolute,

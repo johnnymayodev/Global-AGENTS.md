@@ -1,0 +1,10 @@
+usage:
+  agent-links                          choose instructions or skills, then harnesses
+  agent-links --all                    choose instructions or skills, then all harnesses
+  agent-links --list [--all]           print the detected (or all) instruction targets
+  agent-links link                     preview and confirm linking all supported harnesses
+  agent-links unlink                   preview and confirm removal of managed links
+  agent-links skills [--all]           manage shared skills for detected (or all) harnesses
+  agent-links skills --list [--all]    print the shared skills matrix
+  agent-links skills link <skill>      preview and confirm linking one skill
+  agent-links skills unlink <skill>    preview and confirm unlinking one skill

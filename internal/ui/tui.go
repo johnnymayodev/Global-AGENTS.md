@@ -38,20 +38,25 @@ func runProgram(model tea.Model) error {
 // separate from the help bindings so one binding can never match two
 // directions; the help model only renders the help side.
 var (
-	keyUpward   = key.NewBinding(key.WithKeys("up", "k"))
-	keyDownward = key.NewBinding(key.WithKeys("down", "j"))
-	keyMove     = key.NewBinding(key.WithKeys("up", "down", "k", "j"), key.WithHelp("↑/↓", "move"))
-	keyToggle   = key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle"))
-	keyAll      = key.NewBinding(key.WithKeys("a", "A"), key.WithHelp("a", "select all"))
-	keyNone     = key.NewBinding(key.WithKeys("n", "N"), key.WithHelp("n", "select none"))
-	keyReview   = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "review"))
-	keyChoose   = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "choose"))
-	keyContinue = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "continue"))
-	keyApply    = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "apply"))
-	keyBack     = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))
-	keyCancel   = key.NewBinding(key.WithKeys("esc", "ctrl+c"), key.WithHelp("esc", "cancel"))
-	keyQuit     = key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "cancel"))
-	keyHelp     = key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "more"))
+	keyUpward    = key.NewBinding(key.WithKeys("up", "k"))
+	keyDownward  = key.NewBinding(key.WithKeys("down", "j"))
+	keyLeftward  = key.NewBinding(key.WithKeys("left", "h"))
+	keyRightward = key.NewBinding(key.WithKeys("right", "l"))
+	keyMove      = key.NewBinding(key.WithKeys("up", "down", "k", "j"), key.WithHelp("↑/↓", "move"))
+	keyMoveCells = key.NewBinding(key.WithKeys("left", "right", "h", "l"), key.WithHelp("←/→", "harness"))
+	keyToggle    = key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "toggle"))
+	keyAll       = key.NewBinding(key.WithKeys("a", "A"), key.WithHelp("a", "select all"))
+	keyNone      = key.NewBinding(key.WithKeys("n", "N"), key.WithHelp("n", "select none"))
+	keyReview    = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "review"))
+	keyChoose    = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "choose"))
+	keyContinue  = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "continue"))
+	keyApply     = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "apply"))
+	keyBack      = key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back"))
+	keyCancel    = key.NewBinding(key.WithKeys("esc", "ctrl+c"), key.WithHelp("esc", "cancel"))
+	keyQuit      = key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "cancel"))
+	keyHelp      = key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "more"))
+	keyPageUp    = key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup/pgdown", "scroll"))
+	keyPageDown  = key.NewBinding(key.WithKeys("pgdown"))
 )
 
 // selectKeys is the select step's help layout.
@@ -72,13 +77,42 @@ func (selectKeys) FullHelp() [][]key.Binding {
 type reviewKeys struct{}
 
 func (reviewKeys) ShortHelp() []key.Binding {
-	return []key.Binding{keyApply, keyBack, keyQuit, keyHelp}
+	return []key.Binding{keyApply, keyPageUp, keyBack, keyQuit, keyHelp}
 }
 
 func (reviewKeys) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{keyApply},
-		{keyBack, keyQuit, keyHelp},
+		{keyPageUp, keyBack, keyQuit, keyHelp},
+	}
+}
+
+// matrixKeys is the skills matrix's help layout.
+type matrixKeys struct{}
+
+func (matrixKeys) ShortHelp() []key.Binding {
+	return []key.Binding{keyMove, keyToggle, keyReview, keyCancel, keyHelp}
+}
+
+func (matrixKeys) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{keyMove, keyMoveCells},
+		{keyToggle, keyAll, keyNone},
+		{keyReview, keyCancel, keyHelp},
+	}
+}
+
+// modeKeys is the launch mode menu's help layout.
+type modeKeys struct{}
+
+func (modeKeys) ShortHelp() []key.Binding {
+	return []key.Binding{keyMove, keyChoose, keyCancel}
+}
+
+func (modeKeys) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{keyMove},
+		{keyChoose, keyCancel},
 	}
 }
 
@@ -134,6 +168,16 @@ type Review struct {
 	Apply   func() error
 }
 
+// Mode selects which kind of global configuration the wizard manages.
+type Mode int
+
+const (
+	// ModeInstructions manages the shared AGENTS.md file.
+	ModeInstructions Mode = iota
+	// ModeSkills manages the shared skills directory.
+	ModeSkills
+)
+
 // WizardFlow configures one run of the interactive wizard.
 type WizardFlow struct {
 	Harnesses []harness.Harness
@@ -147,16 +191,36 @@ type WizardFlow struct {
 	// Review turns a selection into a review. ok is false when the
 	// selection leads to no changes at all.
 	Review func(selection map[string]bool) (review Review, ok bool, err error)
+
+	// Launch starts on a mode menu instead of a specific flow.
+	Launch bool
+
+	// InstructionsError and SkillsError defer a preparation failure to the
+	// mode choice, so a broken source for one mode never blocks the other.
+	InstructionsError error
+	SkillsError       error
+
+	// Mode selects instructions or skills when Launch is false.
+	Mode Mode
+
+	// Skills is the prepared matrix for skills mode. It may be nil when
+	// only the instructions side is reachable.
+	Skills *SkillsMatrix
+
+	// SkillsReview turns a matrix selection into a review.
+	SkillsReview func(selection map[string]bool) (review Review, ok bool, err error)
 }
 
 // WizardResult reports how the wizard ended. The caller prints the outcome
 // after the program has left the alternate screen.
 type WizardResult struct {
-	Notices   []string // e.g. "Created ..." lines from the setup step
-	Cancelled bool
-	NoChanges bool
-	Applied   bool
-	Review    Review
+	Notices    []string // e.g. "Created ..." lines from the setup step
+	Mode       Mode
+	ModeChosen bool
+	Cancelled  bool
+	NoChanges  bool
+	Applied    bool
+	Review     Review
 }
 
 // RunWizard runs setup (when needed), selection, and review as one
@@ -183,14 +247,16 @@ func RunWizard(flow WizardFlow) (WizardResult, error) {
 type wizardStep int
 
 const (
-	stepSetup wizardStep = iota
+	stepMode wizardStep = iota
+	stepSetup
 	stepSelect
 	stepReview
+	stepMatrix
 )
 
-// wizard is the single program behind the picker flow: the setup step (when
-// the shared instructions file is missing), the harness table, and the plan
-// review.
+// wizard is the single program behind the picker flow: the launch mode menu,
+// the setup step (when the shared instructions file is missing), the harness
+// table, the skills matrix, and the plan review.
 type wizard struct {
 	flow  WizardFlow
 	step  wizardStep
@@ -198,18 +264,28 @@ type wizard struct {
 	help  help.Model
 	dark  bool
 
-	width int
+	width  int
+	height int
 
 	cursor   int
 	selected map[string]bool
 
-	review Review
+	modeMenu int
 
-	notices   []string
-	applied   bool
-	cancelled bool
-	noChanges bool
-	err       error
+	matrixRow      int
+	matrixCol      int
+	matrixSelected map[string]bool
+
+	review       Review
+	reviewOffset int
+
+	notices    []string
+	mode       Mode
+	modeChosen bool
+	applied    bool
+	cancelled  bool
+	noChanges  bool
+	err        error
 }
 
 func newWizard(flow WizardFlow) *wizard {
@@ -219,17 +295,35 @@ func newWizard(flow WizardFlow) *wizard {
 			selected[id] = true
 		}
 	}
-	m := &wizard{
-		flow:     flow,
-		step:     stepSelect,
-		setup:    newSetupState(flow.Ctx),
-		help:     help.New(),
-		dark:     true,
-		width:    80,
-		selected: selected,
+	matrixSelected := make(map[string]bool)
+	if flow.Skills != nil {
+		for key, on := range flow.Skills.Initial {
+			if on {
+				matrixSelected[key] = true
+			}
+		}
 	}
-	if flow.Setup {
+	m := &wizard{
+		flow:           flow,
+		setup:          newSetupState(flow.Ctx),
+		help:           help.New(),
+		dark:           true,
+		width:          80,
+		height:         24,
+		selected:       selected,
+		matrixSelected: matrixSelected,
+		mode:           flow.Mode,
+		modeChosen:     !flow.Launch,
+	}
+	switch {
+	case flow.Launch:
+		m.step = stepMode
+	case flow.Mode == ModeSkills:
+		m.step = stepMatrix
+	case flow.Setup:
 		m.step = stepSetup
+	default:
+		m.step = stepSelect
 	}
 	applyHelpStyles(&m.help, m.dark)
 	return m
@@ -237,7 +331,7 @@ func newWizard(flow WizardFlow) *wizard {
 
 func (m *wizard) Init() tea.Cmd { return tea.RequestBackgroundColor }
 
-// Selection returns a copy of the current selection.
+// Selection returns a copy of the current instructions selection.
 func (m *wizard) Selection() map[string]bool {
 	selection := make(map[string]bool, len(m.selected))
 	for id, on := range m.selected {
@@ -248,13 +342,26 @@ func (m *wizard) Selection() map[string]bool {
 	return selection
 }
 
+// MatrixSelection returns a copy of the current skills selection.
+func (m *wizard) MatrixSelection() map[string]bool {
+	selection := make(map[string]bool, len(m.matrixSelected))
+	for key, on := range m.matrixSelected {
+		if on {
+			selection[key] = true
+		}
+	}
+	return selection
+}
+
 func (m *wizard) result() WizardResult {
 	return WizardResult{
-		Notices:   m.notices,
-		Cancelled: m.cancelled,
-		NoChanges: m.noChanges,
-		Applied:   m.applied,
-		Review:    m.review,
+		Notices:    m.notices,
+		Mode:       m.mode,
+		ModeChosen: m.modeChosen,
+		Cancelled:  m.cancelled,
+		NoChanges:  m.noChanges,
+		Applied:    m.applied,
+		Review:     m.review,
 	}
 }
 
@@ -268,6 +375,9 @@ func (m *wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		if msg.Width > 0 {
 			m.width = msg.Width
+		}
+		if msg.Height > 0 {
+			m.height = msg.Height
 		}
 		return m, nil
 	case tea.KeyPressMsg:
@@ -283,13 +393,85 @@ func (m *wizard) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *wizard) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.step {
+	case stepMode:
+		return m.updateMode(msg)
 	case stepSetup:
 		return m.updateSetup(msg)
 	case stepSelect:
 		return m.updateSelect(msg)
+	case stepMatrix:
+		return m.updateMatrix(msg)
 	default:
 		return m.updateReview(msg)
 	}
+}
+
+// modeMenuItems are the launch choices; the indexes matter, the 1/2/q
+// accelerators map onto them.
+var modeMenuItems = []string{
+	"Manage global instructions (AGENTS.md)",
+	"Manage global skills (SKILL.md)",
+	"Cancel",
+}
+
+func (m *wizard) updateMode(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, keyUpward):
+		m.modeMenu = (m.modeMenu + len(modeMenuItems) - 1) % len(modeMenuItems)
+		return m, nil
+	case key.Matches(msg, keyDownward):
+		m.modeMenu = (m.modeMenu + 1) % len(modeMenuItems)
+		return m, nil
+	case key.Matches(msg, keyChoose):
+		return m.chooseMode()
+	}
+	switch msg.String() {
+	case "1":
+		m.modeMenu = 0
+		return m.chooseMode()
+	case "2":
+		m.modeMenu = 1
+		return m.chooseMode()
+	case "q", "esc", "ctrl+c":
+		m.cancelled = true
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m *wizard) chooseMode() (tea.Model, tea.Cmd) {
+	m.modeChosen = true
+	switch m.modeMenu {
+	case 0:
+		m.mode = ModeInstructions
+		if m.flow.InstructionsError != nil {
+			m.err = m.flow.InstructionsError
+			return m, tea.Quit
+		}
+		if m.flow.Setup {
+			m.step = stepSetup
+		} else if len(m.flow.Harnesses) == 0 {
+			m.cancelled = true
+			return m, tea.Quit
+		} else {
+			m.step = stepSelect
+		}
+	case 1:
+		m.mode = ModeSkills
+		if m.flow.SkillsError != nil {
+			m.err = m.flow.SkillsError
+			return m, tea.Quit
+		}
+		if m.flow.Skills == nil || len(m.flow.Skills.Skills) == 0 || len(m.flow.Skills.Harnesses) == 0 {
+			m.noChanges = true
+			return m, tea.Quit
+		}
+		m.step = stepMatrix
+	default:
+		m.cancelled = true
+		return m, tea.Quit
+	}
+	return m, nil
 }
 
 // updateSetup drives the shared setup flow; a created file moves the wizard
@@ -309,6 +491,10 @@ func (m *wizard) updateSetup(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case setupFailed:
 		m.err = err
+		return m, tea.Quit
+	}
+	if m.step == stepSelect && len(m.flow.Harnesses) == 0 {
+		m.cancelled = true
 		return m, tea.Quit
 	}
 	return m, cmd
@@ -348,6 +534,89 @@ func (m *wizard) updateSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateMatrix drives the independent skill-by-harness matrix.
+func (m *wizard) updateMatrix(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	matrix := m.flow.Skills
+	if matrix == nil || len(matrix.Skills) == 0 || len(matrix.Harnesses) == 0 {
+		m.cancelled = true
+		return m, tea.Quit
+	}
+	if m.matrixRow >= len(matrix.Skills) {
+		m.matrixRow = len(matrix.Skills) - 1
+	}
+	if m.matrixCol >= len(matrix.Harnesses) {
+		m.matrixCol = len(matrix.Harnesses) - 1
+	}
+
+	switch {
+	case key.Matches(msg, keyUpward):
+		m.matrixRow = (m.matrixRow + len(matrix.Skills) - 1) % len(matrix.Skills)
+	case key.Matches(msg, keyDownward):
+		m.matrixRow = (m.matrixRow + 1) % len(matrix.Skills)
+	case key.Matches(msg, keyLeftward):
+		m.matrixCol = (m.matrixCol + len(matrix.Harnesses) - 1) % len(matrix.Harnesses)
+	case key.Matches(msg, keyRightward):
+		m.matrixCol = (m.matrixCol + 1) % len(matrix.Harnesses)
+	case key.Matches(msg, keyToggle):
+		m.toggleMatrixCell()
+	case key.Matches(msg, keyAll):
+		for key, cell := range matrix.Cells {
+			if cell.Selectable() {
+				m.matrixSelected[key] = true
+			}
+		}
+	case key.Matches(msg, keyNone):
+		m.matrixSelected = make(map[string]bool)
+	case key.Matches(msg, keyReview):
+		return m.reviewMatrix()
+	case key.Matches(msg, keyCancel):
+		m.cancelled = true
+		return m, tea.Quit
+	case key.Matches(msg, keyHelp):
+		m.help.ShowAll = !m.help.ShowAll
+	}
+	return m, nil
+}
+
+func (m *wizard) toggleMatrixCell() {
+	matrix := m.flow.Skills
+	if matrix == nil || m.matrixRow < 0 || m.matrixRow >= len(matrix.Skills) ||
+		m.matrixCol < 0 || m.matrixCol >= len(matrix.Harnesses) {
+		return
+	}
+	cell, ok := matrix.Cell(matrix.Skills[m.matrixRow], matrix.Harnesses[m.matrixCol].ID)
+	if !ok || !cell.Selectable() {
+		return
+	}
+	if m.matrixSelected[cell.Key()] {
+		delete(m.matrixSelected, cell.Key())
+	} else {
+		m.matrixSelected[cell.Key()] = true
+	}
+}
+
+// reviewMatrix asks the caller to build the review for the current matrix
+// selection; no changes at all ends the wizard instead.
+func (m *wizard) reviewMatrix() (tea.Model, tea.Cmd) {
+	if m.flow.SkillsReview == nil {
+		m.noChanges = true
+		return m, tea.Quit
+	}
+	review, ok, err := m.flow.SkillsReview(m.MatrixSelection())
+	if err != nil {
+		m.err = err
+		return m, tea.Quit
+	}
+	if !ok {
+		m.noChanges = true
+		return m, tea.Quit
+	}
+	m.review = review
+	m.reviewOffset = 0
+	m.step = stepReview
+	return m, nil
+}
+
 // reviewSelection asks the caller to build the review for the current
 // selection; no changes at all ends the wizard instead.
 func (m *wizard) reviewSelection() (tea.Model, tea.Cmd) {
@@ -361,6 +630,7 @@ func (m *wizard) reviewSelection() (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	m.review = review
+	m.reviewOffset = 0
 	m.step = stepReview
 	return m, nil
 }
@@ -371,12 +641,34 @@ func (m *wizard) updateReview(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.applied = true
 		return m, tea.Quit
 	case key.Matches(msg, keyBack):
-		m.step = stepSelect
+		if m.mode == ModeSkills {
+			m.step = stepMatrix
+		} else {
+			m.step = stepSelect
+		}
 	case key.Matches(msg, keyQuit):
 		m.cancelled = true
 		return m, tea.Quit
 	case key.Matches(msg, keyHelp):
 		m.help.ShowAll = !m.help.ShowAll
+	case key.Matches(msg, keyUpward):
+		if m.reviewOffset > 0 {
+			m.reviewOffset--
+		}
+	case key.Matches(msg, keyDownward):
+		if m.reviewOffset < m.maxReviewOffset() {
+			m.reviewOffset++
+		}
+	case key.Matches(msg, keyPageUp):
+		m.reviewOffset -= m.reviewVisibleHeight() / 2
+		if m.reviewOffset < 0 {
+			m.reviewOffset = 0
+		}
+	case key.Matches(msg, keyPageDown):
+		m.reviewOffset += m.reviewVisibleHeight() / 2
+		if max := m.maxReviewOffset(); m.reviewOffset > max {
+			m.reviewOffset = max
+		}
 	}
 	return m, nil
 }
@@ -392,6 +684,57 @@ func (m *wizard) statusLine(t theme) string {
 	return t.faint.Render("Selected") + " " + t.bold.Render(fmt.Sprintf("%d of %d", selected, len(m.flow.Harnesses)))
 }
 
+func (m *wizard) reviewVisibleHeight() int {
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+	visible := h - 13
+	if visible < 1 {
+		visible = 1
+	}
+	return visible
+}
+
+func (m *wizard) reviewLines() []string {
+	_, inner := cardLayout(m.width)
+	t := newTheme(m.dark)
+	return strings.Split(t.plan.Width(inner).Render(m.review.Text), "\n")
+}
+
+func (m *wizard) maxReviewOffset() int {
+	max := len(m.reviewLines()) - m.reviewVisibleHeight()
+	if max < 0 {
+		max = 0
+	}
+	return max
+}
+
+// reviewSections renders the scrollable plan body and the apply prompt.
+func (m *wizard) reviewSections(t theme, inner int) []string {
+	lines := m.reviewLines()
+	visible := m.reviewVisibleHeight()
+	offset := m.reviewOffset
+	if max := len(lines) - visible; offset > max {
+		offset = max
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + visible
+	if end > len(lines) {
+		end = len(lines)
+	}
+
+	sections := make([]string, 0, visible+4)
+	sections = append(sections, lines[offset:end]...)
+	if len(lines) > visible {
+		sections = append(sections, "", t.faint.Render(fmt.Sprintf("lines %d-%d of %d", offset+1, end, len(lines))))
+	}
+	sections = append(sections, "", t.accent.Render("❯")+" "+t.bold.Render("Apply this plan?"))
+	return sections
+}
+
 func (m *wizard) View() tea.View {
 	pad, inner := cardLayout(m.width)
 	t := newTheme(m.dark)
@@ -401,6 +744,10 @@ func (m *wizard) View() tea.View {
 		helpText string
 	)
 	switch m.step {
+	case stepMode:
+		subtitle = "What do you want to manage?"
+		sections = m.modeSections(t, inner)
+		helpText = t.helpLine(m.help, modeKeys{}, inner)
 	case stepSetup:
 		subtitle = "First run."
 		sections = m.setup.sections(t, inner)
@@ -418,18 +765,39 @@ func (m *wizard) View() tea.View {
 		}
 		sections = []string{table, "", m.statusLine(t)}
 		helpText = t.helpLine(m.help, selectKeys{}, inner)
+	case stepMatrix:
+		subtitle = "Link your shared skills into each harness."
+		sections = []string{
+			m.renderSkillsMatrix(t, inner),
+			"",
+			t.faint.Render(truncateCell(m.matrixDetails(), inner)),
+			m.matrixStatus(),
+		}
+		helpText = t.helpLine(m.help, matrixKeys{}, inner)
 	default:
 		subtitle = "Review and confirm."
-		sections = []string{
-			t.plan.Width(inner).Render(m.review.Text),
-			"",
-			t.accent.Render("❯") + " " + t.bold.Render("Apply this plan?"),
-		}
+		sections = m.reviewSections(t, inner)
 		helpText = t.helpLine(m.help, reviewKeys{}, inner)
 	}
 	v := tea.NewView(t.card(pad, inner, subtitle, sections, helpText))
 	v.AltScreen = true
 	return v
+}
+
+// modeSections renders the launch menu.
+func (m *wizard) modeSections(t theme, inner int) []string {
+	lines := []string{
+		lipgloss.NewStyle().Width(inner).Render("Instructions and skills live in one shared agents directory, but each harness gets its own links."),
+		"",
+	}
+	for i, item := range modeMenuItems {
+		if i == m.modeMenu {
+			lines = append(lines, t.bar.Render(padRight("❯ "+item, inner)))
+			continue
+		}
+		lines = append(lines, "  "+item)
+	}
+	return lines
 }
 
 // setupStep identifies the setup flow's current screen.

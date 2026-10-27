@@ -1,0 +1,9 @@
+Unlink plan:
+  Remove only these managed symlink entries (not their target files):
+    ~/.config/opencode/skills/git-release -> ~/.config/agents/skills/git-release
+  Already absent: ~/.agents/skills/git-release
+  Already absent: ~/.pi/agent/skills/git-release
+  Already absent: ~/.omp/agent/skills/git-release
+  Already absent: ~/.hermes/skills/git-release
+  Already absent: ~/.claude/skills/git-release
+  Regular files and unrelated symlinks will be left untouched.

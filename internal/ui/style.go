@@ -20,7 +20,7 @@ import (
 // Until the terminal answers, models keep the dark palette, the safer default.
 
 // chipText is the card's title chip.
-const chipText = "Global AGENTS.md"
+const chipText = "agent-links"
 
 // Card geometry: the frame hugs a fixed width so every step lines up, capped
 // on wide terminals and padded tighter when the window gets narrow.

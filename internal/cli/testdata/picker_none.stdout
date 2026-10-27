@@ -1,4 +1,5 @@
-Global instructions: {{HOME}}/.config/agents/AGENTS.md
+What do you want to manage?
+Choose: [1] global instructions (AGENTS.md)  [2] global skills (SKILL.md)  [q] cancel: Global instructions: {{HOME}}/.config/agents/AGENTS.md
 
 ┌──┬─────────────────┬───────────┬─────────────────────┐
 │  │ Harness         │ Installed │ Global instructions │
