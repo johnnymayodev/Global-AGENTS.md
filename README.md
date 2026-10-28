@@ -25,19 +25,35 @@ curl -fsSL https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/main
 
 The runner downloads `agent-links-<target>` and its matching
 `checksums-<target>.txt` from the version pinned in `run.sh` (currently
-`v0.4.0`), verifies the executable's SHA-256 checksum, runs it from a private
-temporary directory, and removes that directory on exit. It forwards your
-arguments and working directory to the CLI. When stdout is a terminal it
-reconnects stdin from `/dev/tty`, so the full-screen wizard still works when the
-script itself is piped to a shell.
+`v0.4.0`), verifies the executable's SHA-256 checksum, and caches both under
+`${XDG_CACHE_HOME:-$HOME/.cache}/agent-links/v<version>/<target>/`. The first
+run downloads both files; later runs re-verify the cached executable's SHA-256
+and need no network. It forwards your arguments, working directory,
+environment, and umask to the CLI. When stdout is a terminal it reconnects stdin
+from `/dev/tty`, so the full-screen wizard still works when the script itself is
+piped to a shell. The binary also opens the controlling terminal for its own
+input, which avoids a macOS shutdown stall; the redirect remains for
+compatibility with older released binaries.
+
+The per-version cache directory is private to your user (`0700`; the executable
+is `0700` and the checksum file `0600`). The runner rejects symlinked version
+directories, symlinked cache entries, and group/world-writable managed
+directories, and falls back to a fresh temporary directory when the cache root
+is unusable. A warm cache needs neither
+`curl` nor `mktemp`; every run needs a SHA-256 utility (`sha256sum` or `shasum`)
+and the usual POSIX shell utilities. Clear the cache with
+`rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/agent-links"`.
 
 This is a one-shot run: it does not install the CLI, change `PATH` or shell
-profiles, or use `sudo`. It requires `curl`, `mktemp`, a SHA-256 utility
-(`sha256sum` or `shasum`), and the usual POSIX shell utilities.
+profiles, or use `sudo`. On a cache miss it requires `curl` and `mktemp` in
+addition to the checksum utility.
 
 The bootstrap requires that the pinned release and its assets already exist.
-The checksum detects a corrupted or mismatched download; because both files come
-from the same GitHub release, it is not an independent signature.
+The cached checksum detects corruption or a mismatched download; because both
+files come from the same GitHub release and the cached checksum sits next to the
+binary, it is not an independent signature. A local writer who can replace both
+cache files can replace the binary, so the private cache directory and its
+ownership checks are the trust boundary.
 
 ### Install or build from source
 
@@ -124,29 +140,41 @@ selection steps add a status line.
 
 1. **Mode menu** chooses global instructions, global skills, or cancel.
 2. **First-run setup** (instructions only, when `AGENTS.md` is missing) offers to
-   copy an existing file or create a blank one.
+   copy an existing file or create a blank one. Once the file exists, backing
+   out and choosing instructions again skips setup.
 3. **Selection** shows the harness picker or the skills matrix. Existing managed
-   links start selected; absent destinations start unselected.
+   links start selected; absent destinations start unselected. An empty mode
+   stays on screen with a hint and can be left with `esc`.
 4. **Review** shows exactly what will be created and removed. Pressing `enter`
    applies that plan on a single keypress, `esc` returns to the previous step,
    and `ctrl+c` cancels without changes. A selection that would change nothing
-   exits with `No changes made.`
+   exits with `No changes made.`, or `No links were changed.` when setup created
+   the instructions file in the same run.
+
+In the wizard opened from the mode menu, `esc` means **back**: the setup menu,
+the harness picker, the skills matrix, and a recoverable error screen all return
+to the mode menu, and review returns to the selection. `ctrl+c` always cancels
+the whole run. A broken instructions or skills source shows a recoverable error
+screen for that mode only; `esc` returns to the mode menu, where the other mode
+still works. Cancelling from that error screen exits `0`; plain-text commands
+still exit `1` for a malformed source.
 
 | Step         | Keys                                                                                                 |
 | ------------ | ---------------------------------------------------------------------------------------------------- |
 | Mode menu    | `↑`/`↓` or `j`/`k` move, `enter` choose, `1` instructions, `2` skills, `q`/`esc`/`ctrl+c` cancel     |
-| Setup menu   | `↑`/`↓` or `j`/`k` move, `enter` choose, `1` copy, `2` blank, `q`/`esc`/`ctrl+c` cancel              |
+| Setup menu   | `↑`/`↓` or `j`/`k` move, `enter` choose, `1` copy, `2` blank, `esc` back, `q`/`ctrl+c` cancel       |
 | Setup path   | Type the path, `enter` continue when valid, `esc` back to the menu, `ctrl+c` cancel                  |
-| Harness picker | `↑`/`↓` or `j`/`k` move, `space` toggle, `a` all, `n` none, `enter` review, `?` help, `esc` cancel   |
-| Skills matrix | `↑`/`↓` or `j`/`k` rows, `←`/`→` or `h`/`l` harnesses, `space` toggle a cell, `a` select all available, `n` clear, `enter` review, `?` help, `esc` cancel |
+| Harness picker | `↑`/`↓` or `j`/`k` move, `space` toggle, `a` all, `n` none, `enter` review, `?` help, `esc` back to the mode menu |
+| Skills matrix | `↑`/`↓` or `j`/`k` rows, `←`/`→` or `h`/`l` harnesses, `space` toggle a cell, `a` select all available, `n` clear, `enter` review, `?` help, `esc` back to the mode menu |
 | Review       | `enter` apply, `esc` back, `↑`/`↓` or `j`/`k` scroll, `pgup`/`pgdown` scroll by half a page, `?` help, `ctrl+c` cancel |
 
 The standalone review used by `link` and `unlink` shares the same view; because
 there is no selection step to return to, `esc` cancels the whole run there. The
-skills matrix scrolls rows and columns on small terminals, and the review
-scrolls when the plan is long. Bubble Tea restores the alternate screen and
-cursor on normal exits, cancellation, `ctrl+c`, `SIGINT`, `SIGTERM`, and
-recovered panics.
+standalone `skills` matrix and the standalone setup used by `link` likewise have
+no previous screen, so `esc` cancels there. The skills matrix scrolls rows and
+columns on small terminals, and the review scrolls when the plan is long. Bubble
+Tea restores the alternate screen and cursor on normal exits, cancellation,
+`ctrl+c`, `SIGINT`, `SIGTERM`, and recovered panics.
 
 ### Without a terminal
 
@@ -163,7 +191,7 @@ scriptable.
 
 | Code | Meaning                                                                                                                        |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `0`  | Success. Also cancellation, a declined confirmation, and a plan with nothing to do.                                            |
+| `0`  | Success. Also cancellation, a declined confirmation, a plan with nothing to do, and cancelling from the wizard's recoverable error screen. |
 | `1`  | Runtime or validation error: `HOME` missing or not absolute, malformed canonical file, refused overwrite, missing skill, destination conflict, non-empty removal without a terminal, or an I/O error. |
 | `2`  | Invalid command or argument combination; usage is printed.                                                                     |
 
@@ -173,7 +201,7 @@ results:
 | Code    | Meaning                                                              |
 | ------- | -------------------------------------------------------------------- |
 | `2`     | Unsupported operating system or architecture.                        |
-| `127`   | `curl`, `mktemp`, or a SHA-256 utility is missing.                   |
+| `127`   | A SHA-256 utility is missing, or `curl`/`mktemp` is missing when a download is needed. |
 | `1`     | Temporary-directory, download, checksum, missing-checksum-entry, or `chmod` failure. |
 | `126`/`127` | The downloaded asset could not be launched.                      |
 | `129`/`130`/`143` | Interrupted by `HUP`, `INT`, or `TERM`.                     |

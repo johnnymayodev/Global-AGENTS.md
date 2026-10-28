@@ -101,9 +101,18 @@ func TestLaunchModeMenu(t *testing.T) {
 		}
 	})
 
-	t.Run("skills choice without skills is a no-op", func(t *testing.T) {
+	t.Run("skills choice without skills opens the recoverable empty matrix", func(t *testing.T) {
 		m := newWizard(WizardFlow{Ctx: ctx, Launch: true, Skills: &SkillsMatrix{}})
-		_, cmd := m.Update(keyRune('2'))
+		if _, cmd := m.Update(keyRune('2')); cmd != nil {
+			t.Fatal("choosing an empty skills mode should not quit")
+		}
+		if m.step != stepMatrix || !m.modeChosen || m.mode != ModeSkills {
+			t.Fatalf("step = %v, mode = %v, chosen = %v", m.step, m.mode, m.modeChosen)
+		}
+		if !strings.Contains(viewText(m), "(no shared skills found)") {
+			t.Errorf("empty matrix view is missing its placeholder:\n%s", viewText(m))
+		}
+		_, cmd := m.Update(keyEnter())
 		assertQuits(t, cmd)
 		result := m.result()
 		if !result.NoChanges || !result.ModeChosen || result.Mode != ModeSkills {
@@ -149,13 +158,22 @@ func TestLaunchModeMenu(t *testing.T) {
 		}
 	})
 
-	t.Run("choosing the broken mode surfaces its error", func(t *testing.T) {
+	t.Run("choosing the broken mode shows a recoverable error", func(t *testing.T) {
 		want := os.ErrPermission
 		m := newWizard(WizardFlow{Ctx: ctx, Launch: true, SkillsError: want})
-		_, cmd := m.Update(keyRune('2'))
+		if _, cmd := m.Update(keyRune('2')); cmd != nil {
+			t.Fatal("a deferred preparation error should not quit")
+		}
+		if m.step != stepError || m.blocked != want || m.err != nil {
+			t.Fatalf("step = %v, blocked = %v, err = %v; want the error screen", m.step, m.blocked, m.err)
+		}
+		if !strings.Contains(viewText(m), "Cannot prepare that mode.") {
+			t.Errorf("error screen missing its subtitle:\n%s", viewText(m))
+		}
+		_, cmd := m.Update(keyCtrlC())
 		assertQuits(t, cmd)
-		if m.err != want {
-			t.Fatalf("err = %v, want %v", m.err, want)
+		if result := m.result(); !result.Cancelled || result.Applied || result.NoChanges {
+			t.Fatalf("result = %+v, want cancelled only", result)
 		}
 	})
 }
@@ -303,6 +321,34 @@ func TestMatrixReviewAndBack(t *testing.T) {
 	}
 }
 
+func TestLaunchMatrixEscReturnsToMode(t *testing.T) {
+	matrix, ctx := testMatrix(t)
+	m := newWizard(WizardFlow{Ctx: ctx, Launch: true, Skills: matrix, SkillsReview: skillsReview(nil)})
+	m.Update(keyRune('2'))
+	m.Update(keyDown())
+	m.Update(keyRight())
+	m.Update(keySpace()) // beta/beta
+
+	_, cmd := m.Update(keyEsc())
+	if cmd != nil || m.cancelled {
+		t.Fatalf("esc at launch matrix should return to the mode menu; cancelled = %v", m.cancelled)
+	}
+	if m.step != stepMode || m.modeChosen || m.blocked != nil {
+		t.Fatalf("step = %v, modeChosen = %v, blocked = %v", m.step, m.modeChosen, m.blocked)
+	}
+	if m.matrixRow != 1 || m.matrixCol != 1 {
+		t.Errorf("matrix cursor = (%d, %d), want (1, 1)", m.matrixRow, m.matrixCol)
+	}
+	if !m.MatrixSelection()[CellKey("beta", "beta")] {
+		t.Error("matrix selection was lost on the way back")
+	}
+
+	m.Update(keyRune('2'))
+	if m.step != stepMatrix || m.matrixRow != 1 || m.matrixCol != 1 {
+		t.Fatalf("re-entered matrix step = %v, cursor = (%d, %d)", m.step, m.matrixRow, m.matrixCol)
+	}
+}
+
 func TestReviewScrolling(t *testing.T) {
 	matrix, ctx := testMatrix(t)
 	var lines []string
@@ -340,6 +386,52 @@ func TestReviewScrolling(t *testing.T) {
 	}
 	if !strings.Contains(view, "Apply this plan?") {
 		t.Errorf("review lost the apply prompt while scrolling:\n%s", view)
+	}
+}
+
+func TestReviewLinesCacheInvalidates(t *testing.T) {
+	matrix, ctx := testMatrix(t)
+	m := newWizard(WizardFlow{
+		Ctx:    ctx,
+		Mode:   ModeSkills,
+		Skills: matrix,
+		SkillsReview: func(map[string]bool) (Review, bool, error) {
+			return Review{Text: "first plan line\nsecond plan line", Summary: "applied", Apply: func() error { return nil }}, true, nil
+		},
+	})
+	m.Update(keySpace())
+	m.Update(keyEnter())
+	if m.step != stepReview {
+		t.Fatalf("step = %v, want review", m.step)
+	}
+
+	first := m.reviewLines()
+	second := m.reviewLines()
+	if len(first) == 0 || len(second) == 0 {
+		t.Fatal("review lines are empty")
+	}
+	if &first[0] != &second[0] {
+		t.Error("an unchanged review re-wrapped instead of using the cache")
+	}
+
+	m.width += 10
+	_ = m.reviewLines()
+	if m.reviewLinesWidth != m.width {
+		t.Error("a resize did not refresh the review-line cache")
+	}
+	m.dark = !m.dark
+	_ = m.reviewLines()
+	if m.reviewLinesDark != m.dark {
+		t.Error("a theme change did not refresh the review-line cache")
+	}
+
+	m.review.Text = "a different plan"
+	got := strings.Join(m.reviewLines(), "\n")
+	if !strings.Contains(got, "a different plan") {
+		t.Errorf("a new review was not rendered:\n%s", got)
+	}
+	if &first[0] == &m.reviewLines()[0] {
+		t.Error("a new review reused the old cache")
 	}
 }
 

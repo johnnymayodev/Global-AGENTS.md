@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"charm.land/bubbles/v2/help"
@@ -27,8 +28,17 @@ import (
 // runProgram runs one model on the process terminal. The models handle
 // ctrl+c and esc themselves, so a SIGINT-interrupted program is a
 // cancellation, not a failure.
-func runProgram(model tea.Model) error {
-	if _, err := tea.NewProgram(model).Run(); err != nil && !errors.Is(err, tea.ErrInterrupted) {
+//
+// input, when non-nil, is handed to Bubble Tea as its input reader. The
+// caller owns and closes it: one CLI invocation can run setup, the wizard,
+// and a confirmation on the same file, and Bubble Tea restores raw mode after
+// each program.
+func runProgram(model tea.Model, input io.Reader) error {
+	options := make([]tea.ProgramOption, 0, 1)
+	if input != nil {
+		options = append(options, tea.WithInput(input))
+	}
+	if _, err := tea.NewProgram(model, options...).Run(); err != nil && !errors.Is(err, tea.ErrInterrupted) {
 		return err
 	}
 	return nil
@@ -59,14 +69,24 @@ var (
 	keyPageDown  = key.NewBinding(key.WithKeys("pgdown"))
 )
 
-// selectKeys is the select step's help layout.
-type selectKeys struct{}
+// selectKeys is the select step's help layout. back marks the launch wizard,
+// where esc returns to the mode menu instead of cancelling.
+type selectKeys struct{ back bool }
 
-func (selectKeys) ShortHelp() []key.Binding {
+func (k selectKeys) ShortHelp() []key.Binding {
+	if k.back {
+		return []key.Binding{keyMove, keyToggle, keyReview, keyBack, keyQuit, keyHelp}
+	}
 	return []key.Binding{keyMove, keyToggle, keyReview, keyCancel, keyHelp}
 }
 
-func (selectKeys) FullHelp() [][]key.Binding {
+func (k selectKeys) FullHelp() [][]key.Binding {
+	if k.back {
+		return [][]key.Binding{
+			{keyMove, keyToggle, keyAll, keyNone},
+			{keyReview, keyBack, keyQuit, keyHelp},
+		}
+	}
 	return [][]key.Binding{
 		{keyMove, keyToggle, keyAll, keyNone},
 		{keyReview, keyCancel, keyHelp},
@@ -87,14 +107,25 @@ func (reviewKeys) FullHelp() [][]key.Binding {
 	}
 }
 
-// matrixKeys is the skills matrix's help layout.
-type matrixKeys struct{}
+// matrixKeys is the skills matrix's help layout. back marks the launch
+// wizard, where esc returns to the mode menu instead of cancelling.
+type matrixKeys struct{ back bool }
 
-func (matrixKeys) ShortHelp() []key.Binding {
+func (k matrixKeys) ShortHelp() []key.Binding {
+	if k.back {
+		return []key.Binding{keyMove, keyToggle, keyReview, keyBack, keyQuit, keyHelp}
+	}
 	return []key.Binding{keyMove, keyToggle, keyReview, keyCancel, keyHelp}
 }
 
-func (matrixKeys) FullHelp() [][]key.Binding {
+func (k matrixKeys) FullHelp() [][]key.Binding {
+	if k.back {
+		return [][]key.Binding{
+			{keyMove, keyMoveCells},
+			{keyToggle, keyAll, keyNone},
+			{keyReview, keyBack, keyQuit, keyHelp},
+		}
+	}
 	return [][]key.Binding{
 		{keyMove, keyMoveCells},
 		{keyToggle, keyAll, keyNone},
@@ -116,14 +147,24 @@ func (modeKeys) FullHelp() [][]key.Binding {
 	}
 }
 
-// setupMenuKeys is the setup menu's help layout.
-type setupMenuKeys struct{}
+// setupMenuKeys is the setup menu's help layout. back marks the launch
+// wizard, where esc returns to the mode menu instead of cancelling.
+type setupMenuKeys struct{ back bool }
 
-func (setupMenuKeys) ShortHelp() []key.Binding {
+func (k setupMenuKeys) ShortHelp() []key.Binding {
+	if k.back {
+		return []key.Binding{keyMove, keyChoose, keyBack, keyQuit}
+	}
 	return []key.Binding{keyMove, keyChoose, keyCancel}
 }
 
-func (setupMenuKeys) FullHelp() [][]key.Binding {
+func (k setupMenuKeys) FullHelp() [][]key.Binding {
+	if k.back {
+		return [][]key.Binding{
+			{keyMove},
+			{keyChoose, keyBack, keyQuit},
+		}
+	}
 	return [][]key.Binding{
 		{keyMove},
 		{keyChoose, keyCancel},
@@ -141,6 +182,19 @@ func (setupPathKeys) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{keyContinue},
 		{keyBack, keyQuit},
+	}
+}
+
+// errorKeys is the recoverable preparation-error screen's help layout.
+type errorKeys struct{}
+
+func (errorKeys) ShortHelp() []key.Binding {
+	return []key.Binding{keyBack, keyQuit, keyHelp}
+}
+
+func (errorKeys) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{keyBack, keyQuit, keyHelp},
 	}
 }
 
@@ -224,10 +278,11 @@ type WizardResult struct {
 }
 
 // RunWizard runs setup (when needed), selection, and review as one
-// full-screen program.
-func RunWizard(flow WizardFlow) (WizardResult, error) {
+// full-screen program. input, when non-nil, becomes Bubble Tea's input
+// reader; the caller owns and closes it.
+func RunWizard(flow WizardFlow, input io.Reader) (WizardResult, error) {
 	m := newWizard(flow)
-	if err := runProgram(m); err != nil {
+	if err := runProgram(m, input); err != nil {
 		return WizardResult{}, err
 	}
 	if m.err != nil {
@@ -252,6 +307,7 @@ const (
 	stepSelect
 	stepReview
 	stepMatrix
+	stepError
 )
 
 // wizard is the single program behind the picker flow: the launch mode menu,
@@ -279,12 +335,21 @@ type wizard struct {
 	review       Review
 	reviewOffset int
 
+	// reviewLinesCache is keyed by the review text, card width, and theme;
+	// scrolling would otherwise re-wrap the whole plan on every keypress.
+	reviewLinesCache []string
+	reviewLinesText  string
+	reviewLinesWidth int
+	reviewLinesDark  bool
+	reviewLinesValid bool
+
 	notices    []string
 	mode       Mode
 	modeChosen bool
 	applied    bool
 	cancelled  bool
 	noChanges  bool
+	blocked    error
 	err        error
 }
 
@@ -401,10 +466,40 @@ func (m *wizard) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.updateSelect(msg)
 	case stepMatrix:
 		return m.updateMatrix(msg)
+	case stepError:
+		return m.updateError(msg)
 	default:
 		return m.updateReview(msg)
 	}
 }
+
+// backToMode returns to the launch mode menu without ending the run. It
+// clears the transient outcome flags; selections and notices survive so the
+// user can switch modes and come back without losing work.
+func (m *wizard) backToMode() {
+	m.step = stepMode
+	m.modeChosen = false
+	m.blocked = nil
+	m.noChanges = false
+	m.cancelled = false
+}
+
+// backOrCancel handles esc on a recoverable screen: the launch wizard returns
+// to the mode menu, while a standalone flow (no previous screen) cancels.
+func (m *wizard) backOrCancel() (tea.Model, tea.Cmd) {
+	if m.flow.Launch {
+		m.backToMode()
+		return m, nil
+	}
+	m.cancelled = true
+	return m, tea.Quit
+}
+
+// Hints shown on the recoverable empty screens (and the error screen).
+const (
+	noHarnessHint = "No supported harnesses were detected. Use --all to show every supported target."
+	noSkillsHint  = "Add <skill-name>/SKILL.md (plus any supporting files), then rerun agent-links."
+)
 
 // modeMenuItems are the launch choices; the indexes matter, the 1/2/q
 // accelerators map onto them.
@@ -440,32 +535,31 @@ func (m *wizard) updateMode(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *wizard) chooseMode() (tea.Model, tea.Cmd) {
-	m.modeChosen = true
 	switch m.modeMenu {
 	case 0:
 		m.mode = ModeInstructions
+		m.modeChosen = true
 		if m.flow.InstructionsError != nil {
-			m.err = m.flow.InstructionsError
-			return m, tea.Quit
+			m.blocked = m.flow.InstructionsError
+			m.step = stepError
+			return m, nil
 		}
 		if m.flow.Setup {
 			m.step = stepSetup
-		} else if len(m.flow.Harnesses) == 0 {
-			m.cancelled = true
-			return m, tea.Quit
 		} else {
+			// Zero harnesses is still a usable screen: the table shows
+			// (none detected) with a hint, and esc returns to the mode menu.
 			m.step = stepSelect
 		}
 	case 1:
 		m.mode = ModeSkills
+		m.modeChosen = true
 		if m.flow.SkillsError != nil {
-			m.err = m.flow.SkillsError
-			return m, tea.Quit
+			m.blocked = m.flow.SkillsError
+			m.step = stepError
+			return m, nil
 		}
-		if m.flow.Skills == nil || len(m.flow.Skills.Skills) == 0 || len(m.flow.Skills.Harnesses) == 0 {
-			m.noChanges = true
-			return m, tea.Quit
-		}
+		// A nil or empty matrix is still a usable screen with a hint.
 		m.step = stepMatrix
 	default:
 		m.cancelled = true
@@ -482,10 +576,19 @@ func (m *wizard) updateSetup(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch event {
 	case setupCreatedBlank:
 		m.notices = append(m.notices, fmt.Sprintf("Created blank instructions file: %s", m.setup.ctx.SourceFile))
+		m.flow.Setup = false
 		m.step = stepSelect
 	case setupCreatedFrom:
 		m.notices = append(m.notices, fmt.Sprintf("Created %s from %s", m.setup.ctx.SourceFile, m.setup.copied))
+		m.flow.Setup = false
 		m.step = stepSelect
+	case setupBack:
+		if m.flow.Launch {
+			m.backToMode()
+		} else {
+			m.cancelled = true
+			return m, tea.Quit
+		}
 	case setupCancelled:
 		m.cancelled = true
 		return m, tea.Quit
@@ -493,17 +596,26 @@ func (m *wizard) updateSetup(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.err = err
 		return m, tea.Quit
 	}
-	if m.step == stepSelect && len(m.flow.Harnesses) == 0 {
-		m.cancelled = true
-		return m, tea.Quit
-	}
 	return m, cmd
 }
 
 func (m *wizard) updateSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if len(m.flow.Harnesses) == 0 {
-		m.cancelled = true
-		return m, tea.Quit
+		// Nothing to move over or toggle. Keep the screen recoverable:
+		// esc goes back (launch) or cancels, enter reports no changes, and
+		// the help still toggles.
+		switch {
+		case key.Matches(msg, keyReview):
+			return m.reviewSelection()
+		case key.Matches(msg, keyQuit):
+			m.cancelled = true
+			return m, tea.Quit
+		case key.Matches(msg, keyBack):
+			return m.backOrCancel()
+		case key.Matches(msg, keyHelp):
+			m.help.ShowAll = !m.help.ShowAll
+		}
+		return m, nil
 	}
 	switch {
 	case key.Matches(msg, keyUpward):
@@ -525,9 +637,11 @@ func (m *wizard) updateSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.selected = make(map[string]bool)
 	case key.Matches(msg, keyReview):
 		return m.reviewSelection()
-	case key.Matches(msg, keyCancel):
+	case key.Matches(msg, keyQuit):
 		m.cancelled = true
 		return m, tea.Quit
+	case key.Matches(msg, keyBack):
+		return m.backOrCancel()
 	case key.Matches(msg, keyHelp):
 		m.help.ShowAll = !m.help.ShowAll
 	}
@@ -538,8 +652,20 @@ func (m *wizard) updateSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *wizard) updateMatrix(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	matrix := m.flow.Skills
 	if matrix == nil || len(matrix.Skills) == 0 || len(matrix.Harnesses) == 0 {
-		m.cancelled = true
-		return m, tea.Quit
+		// Nothing to move over or toggle. Keep the screen recoverable and
+		// never compute a cursor modulo zero.
+		switch {
+		case key.Matches(msg, keyReview):
+			return m.reviewMatrix()
+		case key.Matches(msg, keyQuit):
+			m.cancelled = true
+			return m, tea.Quit
+		case key.Matches(msg, keyBack):
+			return m.backOrCancel()
+		case key.Matches(msg, keyHelp):
+			m.help.ShowAll = !m.help.ShowAll
+		}
+		return m, nil
 	}
 	if m.matrixRow >= len(matrix.Skills) {
 		m.matrixRow = len(matrix.Skills) - 1
@@ -569,9 +695,11 @@ func (m *wizard) updateMatrix(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.matrixSelected = make(map[string]bool)
 	case key.Matches(msg, keyReview):
 		return m.reviewMatrix()
-	case key.Matches(msg, keyCancel):
+	case key.Matches(msg, keyQuit):
 		m.cancelled = true
 		return m, tea.Quit
+	case key.Matches(msg, keyBack):
+		return m.backOrCancel()
 	case key.Matches(msg, keyHelp):
 		m.help.ShowAll = !m.help.ShowAll
 	}
@@ -620,6 +748,10 @@ func (m *wizard) reviewMatrix() (tea.Model, tea.Cmd) {
 // reviewSelection asks the caller to build the review for the current
 // selection; no changes at all ends the wizard instead.
 func (m *wizard) reviewSelection() (tea.Model, tea.Cmd) {
+	if m.flow.Review == nil {
+		m.noChanges = true
+		return m, tea.Quit
+	}
 	review, ok, err := m.flow.Review(m.Selection())
 	if err != nil {
 		m.err = err
@@ -673,6 +805,21 @@ func (m *wizard) updateReview(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// updateError shows a deferred preparation error for one mode while keeping
+// the mode menu reachable, so a broken source never blocks the healthy mode.
+func (m *wizard) updateError(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, keyQuit):
+		m.cancelled = true
+		return m, tea.Quit
+	case key.Matches(msg, keyBack):
+		return m.backOrCancel()
+	case key.Matches(msg, keyHelp):
+		m.help.ShowAll = !m.help.ShowAll
+	}
+	return m, nil
+}
+
 // statusLine reports how many harnesses are selected.
 func (m *wizard) statusLine(t theme) string {
 	selected := 0
@@ -697,9 +844,21 @@ func (m *wizard) reviewVisibleHeight() int {
 }
 
 func (m *wizard) reviewLines() []string {
+	if m.reviewLinesValid &&
+		m.reviewLinesText == m.review.Text &&
+		m.reviewLinesWidth == m.width &&
+		m.reviewLinesDark == m.dark {
+		return m.reviewLinesCache
+	}
 	_, inner := cardLayout(m.width)
 	t := newTheme(m.dark)
-	return strings.Split(t.plan.Width(inner).Render(m.review.Text), "\n")
+	lines := strings.Split(t.plan.Width(inner).Render(m.review.Text), "\n")
+	m.reviewLinesCache = lines
+	m.reviewLinesText = m.review.Text
+	m.reviewLinesWidth = m.width
+	m.reviewLinesDark = m.dark
+	m.reviewLinesValid = true
+	return lines
 }
 
 func (m *wizard) maxReviewOffset() int {
@@ -754,17 +913,20 @@ func (m *wizard) View() tea.View {
 		if m.setup.step == setupCopyPath {
 			helpText = t.helpLine(m.help, setupPathKeys{}, inner)
 		} else {
-			helpText = t.helpLine(m.help, setupMenuKeys{}, inner)
+			helpText = t.helpLine(m.help, setupMenuKeys{back: m.flow.Launch}, inner)
 		}
 	case stepSelect:
 		subtitle = "Link your shared instructions into each harness."
 		table, err := renderHarnessTable(t, m.flow.Harnesses, m.flow.Ctx, m.selected, m.cursor, inner)
 		if err != nil {
-			// Keep the picker usable (esc still cancels) if a stat fails.
+			// Keep the picker usable (esc still backs out) if a stat fails.
 			table = t.danger.Render("error: " + err.Error())
 		}
 		sections = []string{table, "", m.statusLine(t)}
-		helpText = t.helpLine(m.help, selectKeys{}, inner)
+		if len(m.flow.Harnesses) == 0 {
+			sections = append(sections, "", t.faint.Width(inner).Render(noHarnessHint))
+		}
+		helpText = t.helpLine(m.help, selectKeys{back: m.flow.Launch}, inner)
 	case stepMatrix:
 		subtitle = "Link your shared skills into each harness."
 		sections = []string{
@@ -773,7 +935,25 @@ func (m *wizard) View() tea.View {
 			t.faint.Render(truncateCell(m.matrixDetails(), inner)),
 			m.matrixStatus(),
 		}
-		helpText = t.helpLine(m.help, matrixKeys{}, inner)
+		if m.flow.Skills == nil || len(m.flow.Skills.Skills) == 0 {
+			sections = append(sections, "", t.faint.Width(inner).Render(noSkillsHint))
+		}
+		if m.flow.Skills == nil || len(m.flow.Skills.Harnesses) == 0 {
+			sections = append(sections, "", t.faint.Width(inner).Render(noHarnessHint))
+		}
+		helpText = t.helpLine(m.help, matrixKeys{back: m.flow.Launch}, inner)
+	case stepError:
+		subtitle = "Cannot prepare that mode."
+		message := "error: unknown error"
+		if m.blocked != nil {
+			message = "error: " + m.blocked.Error()
+		}
+		sections = []string{
+			t.danger.Width(inner).Render(message),
+			"",
+			t.faint.Width(inner).Render("The other mode is still available."),
+		}
+		helpText = t.helpLine(m.help, errorKeys{}, inner)
 	default:
 		subtitle = "Review and confirm."
 		sections = m.reviewSections(t, inner)
@@ -823,6 +1003,7 @@ const (
 	setupPending setupEvent = iota
 	setupCreatedBlank
 	setupCreatedFrom
+	setupBack
 	setupCancelled
 	setupFailed
 )
@@ -893,8 +1074,10 @@ func (s *setupState) handleKey(msg tea.KeyPressMsg) (setupEvent, tea.Cmd, error)
 	case "2":
 		s.menu = 1
 		return s.choose()
-	case "q", "esc", "ctrl+c":
+	case "q", "ctrl+c":
 		return setupCancelled, nil, nil
+	case "esc":
+		return setupBack, nil, nil
 	}
 	return setupPending, nil, nil
 }
@@ -1083,7 +1266,8 @@ func (m *SetupModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Created = true
 			m.From = m.setup.copied
 			return m, tea.Quit
-		case setupCancelled:
+		case setupBack, setupCancelled:
+			// A standalone setup has no previous screen, so esc still cancels.
 			m.Cancelled = true
 			return m, tea.Quit
 		case setupFailed:

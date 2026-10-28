@@ -49,6 +49,12 @@ func TestMain(m *testing.M) {
 type tuiStep struct {
 	wait string
 	send string
+
+	// delay pauses after sending the keys. Escape followed immediately by
+	// another key can decode as Alt+key, so multi-step back navigation gives
+	// the terminal time to deliver the lone escape first. Only the python
+	// driver honors it.
+	delay time.Duration
 }
 
 type tuiSpec struct {
@@ -80,6 +86,11 @@ type tuiResult struct {
 	output   string
 	exitCode int
 
+	// lastStepMS is the time from the final key write to the child's exit.
+	// Only measured by the python driver; script(1) pre-feeds every key.
+	lastStepMS       float64
+	lastStepMeasured bool
+
 	// cookedAfter reports that the pty was back in cooked mode (matching a
 	// fresh pty) after the process exited. Only checked by the python driver.
 	cookedChecked bool
@@ -92,6 +103,24 @@ func (r tuiResult) assertContains(t *testing.T, wants ...string) {
 		if !strings.Contains(r.output, want) {
 			t.Errorf("output does not contain %q\n--- output ---\n%s", want, r.output)
 		}
+	}
+}
+
+func (r tuiResult) assertNotContains(t *testing.T, unwanted ...string) {
+	t.Helper()
+	for _, want := range unwanted {
+		if strings.Contains(r.output, want) {
+			t.Errorf("output unexpectedly contains %q\n--- output ---\n%s", want, r.output)
+		}
+	}
+}
+
+// requirePython skips tests that need marker-by-marker key delivery or timing;
+// script(1) pre-feeds every key and cannot control either.
+func requirePython(t *testing.T) {
+	t.Helper()
+	if !pythonOK {
+		t.Skip("this test needs the python3 pty driver")
 	}
 }
 
@@ -196,9 +225,13 @@ func runViaPython(t *testing.T, spec tuiSpec) tuiResult {
 		"timeout":     20,
 	}
 	if len(spec.steps) > 0 {
-		steps := make([]map[string]string, len(spec.steps))
+		steps := make([]map[string]any, len(spec.steps))
 		for i, step := range spec.steps {
-			steps[i] = map[string]string{"wait": step.wait, "send": step.send}
+			encoded := map[string]any{"wait": step.wait, "send": step.send}
+			if step.delay > 0 {
+				encoded["delay"] = step.delay.Seconds()
+			}
+			steps[i] = encoded
 		}
 		payload["steps"] = steps
 	}
@@ -232,10 +265,12 @@ func runViaPython(t *testing.T, spec tuiSpec) tuiResult {
 		t.Fatal(err)
 	}
 	var decoded struct {
-		ExitCode      int  `json:"exit_code"`
-		TimedOut      bool `json:"timed_out"`
-		CookedChecked bool `json:"cooked_checked"`
-		CookedAfter   bool `json:"cooked_after"`
+		ExitCode         int     `json:"exit_code"`
+		TimedOut         bool    `json:"timed_out"`
+		CookedChecked    bool    `json:"cooked_checked"`
+		CookedAfter      bool    `json:"cooked_after"`
+		LastStepMS       float64 `json:"last_step_ms"`
+		LastStepMeasured bool    `json:"last_step_measured"`
 	}
 	resultData, err := os.ReadFile(resultFile)
 	if err != nil {
@@ -248,10 +283,12 @@ func runViaPython(t *testing.T, spec tuiSpec) tuiResult {
 		t.Fatalf("the session did not finish within the driver timeout\n--- output ---\n%s", output)
 	}
 	return tuiResult{
-		output:        string(output),
-		exitCode:      decoded.ExitCode,
-		cookedChecked: decoded.CookedChecked,
-		cookedAfter:   decoded.CookedAfter,
+		output:           string(output),
+		exitCode:         decoded.ExitCode,
+		lastStepMS:       decoded.LastStepMS,
+		lastStepMeasured: decoded.LastStepMeasured,
+		cookedChecked:    decoded.CookedChecked,
+		cookedAfter:      decoded.CookedAfter,
 	}
 }
 
@@ -325,15 +362,21 @@ steps = list(spec.get("steps") or [])
 signal_spec = spec.get("signal")
 signal_sent = False
 output = bytearray()
+# seen is the fresh-output offset: each step must see its wait marker after
+# the previous key was sent, so a marker from an earlier visit does not count.
+seen = 0
 deadline = time.monotonic() + timeout
 status = None
 timed_out = False
+last_send_at = None
+exit_at = None
 
 while True:
     if time.monotonic() > deadline:
         timed_out = True
         os.kill(pid, signal.SIGKILL)
         _, status = os.waitpid(pid, 0)
+        exit_at = time.monotonic()
         break
 
     ready, _, _ = select.select([master], [], [], 0.1)
@@ -344,9 +387,14 @@ while True:
             chunk = b""
         output.extend(chunk)
 
-    if steps and steps[0]["wait"].encode() in output:
+    if steps and steps[0]["wait"].encode() in output[seen:]:
         os.write(master, steps[0]["send"].encode())
+        last_send_at = time.monotonic()
+        seen = len(output)
+        delay = float(steps[0].get("delay", 0) or 0)
         steps.pop(0)
+        if delay > 0:
+            time.sleep(delay)
 
     if signal_spec and not signal_sent and signal_spec["wait"].encode() in output:
         os.kill(pid, getattr(signal, "SIG" + signal_spec["signal"]))
@@ -354,6 +402,7 @@ while True:
 
     child, child_status = os.waitpid(pid, os.WNOHANG)
     if child:
+        exit_at = time.monotonic()
         status = child_status
         break
 
@@ -384,6 +433,8 @@ result = {
     "timed_out": timed_out,
     "cooked_checked": cooked_checked,
     "cooked_after": cooked_after,
+    "last_step_measured": last_send_at is not None,
+    "last_step_ms": 0.0 if last_send_at is None else (exit_at - last_send_at) * 1000.0,
 }
 with open(spec["result_file"], "w") as f:
     json.dump(result, f)
@@ -781,6 +832,9 @@ func TestSetupCopy(t *testing.T) {
 			{wait: "Copy an existing instructions file", send: "1"},
 			{wait: "Path to the existing instructions file", send: selected},
 			{wait: "✓ file exists", send: "\r"},
+			// With no detected harnesses the empty select screen stays
+			// recoverable; cancel it explicitly.
+			{wait: "(none detected)", send: "\x03"},
 		},
 	})
 
@@ -792,13 +846,217 @@ func TestSetupCopy(t *testing.T) {
 		"Path to the existing instructions file",
 		"✓ file exists",
 		fmt.Sprintf("Created %s from %s", source, selected),
-		"No supported harnesses were detected. Use `agent-links --all` to show every supported target.",
-		"Cancelled. No changes made.", // no harness is detected, so the picker cancels
+		"(none detected)",
+		"No supported harnesses were detected.",
+		"Use --all",
+		"Cancelled. No links were changed.",
 	)
+	result.assertNotContains(t, "Cancelled. No changes made.")
 
 	contents, err := os.ReadFile(source)
 	if err != nil || string(contents) != "# Existing\n" {
 		t.Fatalf("source contents = %q, %v", contents, err)
+	}
+}
+
+func TestBackNavigationInstructionsAndSkills(t *testing.T) {
+	requirePython(t)
+	home := t.TempDir()
+	writeSource(t, home)
+	writeSkill(t, home, "alpha")
+
+	result := runTUI(t, tuiSpec{
+		home: home,
+		args: []string{"--all"},
+		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "1"},
+			{wait: "Link your shared instructions into each harness.", send: "\x1b", delay: 100 * time.Millisecond},
+			{wait: "What do you want to manage?", send: "2"},
+			{wait: "Link your shared skills into each harness.", send: "\x1b", delay: 100 * time.Millisecond},
+			{wait: "What do you want to manage?", send: "q"},
+		},
+	})
+	if result.exitCode != 0 {
+		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
+	}
+	result.assertContains(t,
+		"Link your shared instructions into each harness.",
+		"Link your shared skills into each harness.",
+		"Cancelled. No changes made.",
+	)
+}
+
+func TestSetupCreationSkipsSetupOnReentry(t *testing.T) {
+	requirePython(t)
+	home := t.TempDir()
+
+	result := runTUI(t, tuiSpec{
+		home: home,
+		args: []string{"--all"},
+		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "1"},
+			{wait: "Create a blank AGENTS.md", send: "2"},
+			{wait: "Link your shared instructions into each harness.", send: "\x1b", delay: 100 * time.Millisecond},
+			{wait: "What do you want to manage?", send: "1"},
+			{wait: "Link your shared instructions into each harness.", send: "\x03"},
+		},
+	})
+	if result.exitCode != 0 {
+		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
+	}
+	result.assertContains(t,
+		fmt.Sprintf("Created blank instructions file: %s", sourceFilePath(home)),
+		"Cancelled. No links were changed.",
+	)
+	result.assertNotContains(t, "Cancelled. No changes made.")
+	if got := strings.Count(result.output, "No shared instructions file found at"); got != 1 {
+		t.Errorf("setup screen appeared %d times, want exactly 1\n--- output ---\n%s", got, result.output)
+	}
+}
+
+func TestBrokenInstructionsModeIsRecoverable(t *testing.T) {
+	requirePython(t)
+	home := t.TempDir()
+	alpha := writeSkill(t, home, "alpha")
+	// A directory at the canonical instructions path breaks only that mode.
+	if err := os.MkdirAll(sourceFilePath(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runTUI(t, tuiSpec{
+		home: home,
+		args: []string{"--all"},
+		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "1"},
+			{wait: "Cannot prepare that mode.", send: "\x1b", delay: 100 * time.Millisecond},
+			{wait: "What do you want to manage?", send: "2"},
+			{wait: "Link your shared skills into each harness.", send: " \r"},
+			{wait: "Apply this plan?", send: "\r"},
+		},
+	})
+	if result.exitCode != 0 {
+		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
+	}
+	result.assertContains(t,
+		"Cannot prepare that mode.",
+		"canonical instructions path is",
+		"created symlink ~/.config/opencode/skills/alpha",
+	)
+	if link, err := os.Readlink(filepath.Join(home, ".config", "opencode", "skills", "alpha")); err != nil || link != alpha {
+		t.Errorf("skill link = %q, %v; want %s", link, err, alpha)
+	}
+}
+
+func TestBrokenSkillsModeIsRecoverable(t *testing.T) {
+	requirePython(t)
+	home := t.TempDir()
+	source := writeSource(t, home)
+	// A file at the skills root breaks only that mode.
+	if err := os.MkdirAll(filepath.Join(home, ".config", "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skillsRoot(home), []byte("not a directory\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := runTUI(t, tuiSpec{
+		home: home,
+		args: []string{"--all"},
+		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "2"},
+			{wait: "Cannot prepare that mode.", send: "\x1b", delay: 100 * time.Millisecond},
+			{wait: "What do you want to manage?", send: "1"},
+			{wait: "Link your shared instructions into each harness.", send: " \r"},
+			{wait: "Apply this plan?", send: "\r"},
+		},
+	})
+	if result.exitCode != 0 {
+		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
+	}
+	result.assertContains(t,
+		"Cannot prepare that mode.",
+		"shared skills path is",
+		"created symlink ~/.config/opencode/AGENTS.md",
+	)
+	if link, err := os.Readlink(filepath.Join(home, ".config", "opencode", "AGENTS.md")); err != nil || link != source {
+		t.Errorf("instructions link = %q, %v; want %s", link, err, source)
+	}
+}
+
+func TestEmptySkillsModeIsRecoverable(t *testing.T) {
+	requirePython(t)
+	home := t.TempDir()
+	writeSource(t, home)
+
+	result := runTUI(t, tuiSpec{
+		home: home,
+		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "2"},
+			{wait: "(no shared skills found)", send: "\x1b", delay: 100 * time.Millisecond},
+			{wait: "What do you want to manage?", send: "q"},
+		},
+	})
+	if result.exitCode != 0 {
+		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
+	}
+	result.assertContains(t,
+		"(no shared skills found)",
+		"Add <skill-name>/SKILL.md",
+		"No supported harnesses were detected.",
+		"Cancelled. No changes made.",
+	)
+	// The CLI no longer appends a duplicate plain-text empty-state line.
+	result.assertNotContains(t, "No shared skills found at")
+}
+
+func TestEmptyInstructionsModeIsRecoverable(t *testing.T) {
+	requirePython(t)
+	home := t.TempDir()
+	writeSource(t, home)
+
+	result := runTUI(t, tuiSpec{
+		home: home,
+		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "1"},
+			{wait: "(none detected)", send: "\x1b", delay: 100 * time.Millisecond},
+			{wait: "What do you want to manage?", send: "q"},
+		},
+	})
+	if result.exitCode != 0 {
+		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
+	}
+	result.assertContains(t,
+		"(none detected)",
+		"No supported harnesses were detected.",
+		"Use --all",
+		"Cancelled. No changes made.",
+	)
+}
+
+func TestLinkCancelAfterSetupUsesLinkCopy(t *testing.T) {
+	home := t.TempDir()
+
+	result := runTUI(t, tuiSpec{
+		home: home,
+		args: []string{"link"},
+		steps: []tuiStep{
+			{wait: "Create a blank AGENTS.md", send: "2"},
+			{wait: "Link plan:", send: "\x1b"},
+		},
+	})
+	if result.exitCode != 0 {
+		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
+	}
+	result.assertContains(t,
+		fmt.Sprintf("Created blank instructions file: %s", sourceFilePath(home)),
+		"Link plan:",
+		"Cancelled. No links were changed.",
+	)
+	result.assertNotContains(t, "Cancelled. No changes made.")
+	for _, target := range allTargets(home) {
+		if _, err := os.Lstat(target); err == nil {
+			t.Errorf("%s exists after a cancelled link review", target)
+		}
 	}
 }
 
@@ -823,10 +1081,12 @@ func TestPipedScriptReachesPicker(t *testing.T) {
 		path: "/usr/bin:/bin",
 		exec: []string{"/bin/sh", "-c", shellLine},
 		steps: []tuiStep{
-			// Esc cancels the picker; it is safe to pre-feed on the
-			// script(1) path because it is a plain byte, not a signal.
+			// esc at the launch picker now returns to the mode menu, so this
+			// cancel/timing test uses the unambiguous ctrl+c instead. It is
+			// safe to pre-feed on the script(1) path because it is a plain
+			// byte, not a signal.
 			{wait: "What do you want to manage?", send: "1"},
-			{wait: "Link your shared instructions into each harness.", send: "\x1b"},
+			{wait: "Link your shared instructions into each harness.", send: "\x03"},
 		},
 	})
 
@@ -840,6 +1100,47 @@ func TestPipedScriptReachesPicker(t *testing.T) {
 	if result.cookedChecked && !result.cookedAfter {
 		t.Error("the terminal was left in raw mode after a normal exit")
 	}
+}
+
+// TestPipedScriptCloseLatency drives the current run.sh shape (binary stdin
+// reconnected with </dev/tty) and measures the time from the final key to
+// process exit. A healthy run is ~50-150 ms; the pre-fix 500 ms Bubble Tea
+// read-loop timeout showed up as ~550 ms plus driver overhead.
+func TestPipedScriptCloseLatency(t *testing.T) {
+	requirePython(t)
+	home := t.TempDir()
+	writeSource(t, home)
+
+	dir := t.TempDir()
+	piped := filepath.Join(dir, "piped.sh")
+	script := fmt.Sprintf("exec %s \"$@\" </dev/tty\n", shellQuote([]string{binaryPath}))
+	if err := os.WriteFile(piped, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	shellLine := fmt.Sprintf("cat %s | sh -s -- --all", shellQuote([]string{piped}))
+	result := runTUI(t, tuiSpec{
+		home: home,
+		// The inner shell needs cat and sh from PATH.
+		path: "/usr/bin:/bin",
+		exec: []string{"/bin/sh", "-c", shellLine},
+		steps: []tuiStep{
+			{wait: "What do you want to manage?", send: "1"},
+			{wait: "Link your shared instructions into each harness.", send: "\x03"},
+		},
+	})
+	if result.exitCode != 0 {
+		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
+	}
+	if !result.lastStepMeasured {
+		t.Fatal("the driver did not measure the final key to exit")
+	}
+	t.Logf("close latency from final key to exit: %.1f ms", result.lastStepMS)
+	if result.lastStepMS >= 400 {
+		t.Errorf("close latency = %.1f ms, want < 400 ms (the pre-fix stall is ~550 ms)\n--- output ---\n%s",
+			result.lastStepMS, result.output)
+	}
+	result.assertContains(t, "Cancelled. No changes made.")
 }
 
 func TestTerminalRestoredAfterSignal(t *testing.T) {

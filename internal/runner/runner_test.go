@@ -74,6 +74,17 @@ func lookPathIn(path, name string) bool {
 	return false
 }
 
+// executableIn returns the first executable named name under path.
+func executableIn(path, name string) string {
+	for _, dir := range filepath.SplitList(path) {
+		candidate := filepath.Join(dir, name)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return candidate
+		}
+	}
+	return ""
+}
+
 func requireHashTool(t *testing.T) {
 	t.Helper()
 	if !hashToolAvailable {
@@ -108,15 +119,17 @@ if [ -n "${CURL_PARTIAL:-}" ]; then
   printf 'partial' > "$output"
   exit 18
 fi
-base=$(basename "$output")
-case "$base" in
-  checksums-*.txt)
+# Choose the payload by URL, not by the output name: run.sh downloads into
+# private mktemp files whose names intentionally do not look like release
+# assets.
+case "$url" in
+  *checksums-*.txt)
     # The test pre-writes the checksum file next to the fixture; prefer an
     # explicit override, else fall back to the file the test already staged.
     if [ -n "${CURL_CHECKSUM_FILE:-}" ]; then
       cp "$CURL_CHECKSUM_FILE" "$output"
     else
-      cp "$TMPDIR/$base" "$output"
+      cp "$TMPDIR/$(basename "$url")" "$output"
     fi
     ;;
   *)
@@ -138,6 +151,9 @@ const assetStub = `#!/bin/sh
 set -eu
 printf '%s\n' "$0" > "$ASSET_EXE_CAPTURE"
 printf '%s\n' "$PWD" > "$PWD_CAPTURE"
+if [ -n "${UMASK_CAPTURE:-}" ]; then
+  umask > "$UMASK_CAPTURE"
+fi
 : > "$ARGS_CAPTURE"
 for arg in "$@"; do
   printf '%s\n' "$arg" >> "$ARGS_CAPTURE"
@@ -212,8 +228,81 @@ func newFixture(t *testing.T) *fixture {
 	env["PWD_CAPTURE"] = f.pwdPath
 	env["UNAME_OS"] = unameOS(runtime.GOOS)
 	env["UNAME_MACHINE"] = unameMachine(runtime.GOARCH)
+	// Keep a developer's real cache out of every fixture; cache tests set
+	// XDG_CACHE_HOME explicitly.
+	delete(env, "XDG_CACHE_HOME")
 	f.env = env
 	return f
+}
+
+// cacheLeaf is the default version-scoped cache directory for this fixture.
+func (f *fixture) cacheLeaf() string {
+	return filepath.Join(f.homeDir, ".cache", "agent-links", "v"+version, hostTarget())
+}
+
+func (f *fixture) cacheAsset() string {
+	return filepath.Join(f.cacheLeaf(), "agent-links-"+hostTarget())
+}
+
+func (f *fixture) cacheSums() string {
+	return filepath.Join(f.cacheLeaf(), "checksums-"+hostTarget()+".txt")
+}
+
+// downloadCalls counts the asset and checksum URLs fetched so far.
+func (f *fixture) downloadCalls() int {
+	f.t.Helper()
+	contents := strings.TrimSpace(f.readCapture(f.curlURLs))
+	if contents == "" {
+		return 0
+	}
+	return len(strings.Split(contents, "\n"))
+}
+
+// resetDownloads clears the curl URL capture and the executed-asset marker,
+// so a second run can prove it neither downloaded nor skipped execution.
+func (f *fixture) resetDownloads() {
+	f.t.Helper()
+	if err := os.WriteFile(f.curlURLs, nil, 0o644); err != nil {
+		f.t.Fatalf("reset curl capture: %v", err)
+	}
+	if err := os.Remove(f.assetExe); err != nil && !errors.Is(err, os.ErrNotExist) {
+		f.t.Fatalf("reset asset capture: %v", err)
+	}
+}
+
+// assertModes checks the cache directory and file permissions.
+func (f *fixture) assertModes() {
+	f.t.Helper()
+	for path, want := range map[string]os.FileMode{
+		f.cacheLeaf():  0o700,
+		f.cacheAsset(): 0o700,
+		f.cacheSums():  0o600,
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			f.t.Errorf("stat %s: %v", path, err)
+			continue
+		}
+		if got := info.Mode().Perm(); got != want {
+			f.t.Errorf("%s mode = %o, want %o", path, got, want)
+		}
+	}
+}
+
+// assertNoCacheFiles checks that no partial or executable cache entry was
+// left behind. The leaf directory itself may exist.
+func (f *fixture) assertNoCacheFiles() {
+	f.t.Helper()
+	entries, err := os.ReadDir(f.cacheLeaf())
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		f.t.Fatalf("read cache leaf: %v", err)
+	}
+	for _, entry := range entries {
+		f.t.Errorf("cache contains an unexpected entry: %s", entry.Name())
+	}
 }
 
 func unameOS(goos string) string {
@@ -398,6 +487,7 @@ func TestRejectsUnsupportedOS(t *testing.T) {
 	if _, err := os.Stat(f.assetExe); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("asset was executed despite the unsupported platform: %v", err)
 	}
+	f.assertNoCacheFiles()
 	f.assertClean()
 }
 
@@ -416,6 +506,7 @@ func TestRejectsUnsupportedArchitecture(t *testing.T) {
 	if _, err := os.Stat(f.assetExe); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("asset was executed despite the unsupported architecture: %v", err)
 	}
+	f.assertNoCacheFiles()
 	f.assertClean()
 }
 
@@ -513,6 +604,7 @@ func TestChecksumMismatchNeverExecutesTheAsset(t *testing.T) {
 	if _, err := os.Stat(f.assetExe); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("asset was executed despite the checksum mismatch: %v", err)
 	}
+	f.assertNoCacheFiles()
 	f.assertClean()
 }
 
@@ -534,6 +626,7 @@ func TestMissingChecksumEntryIsRejected(t *testing.T) {
 	if _, err := os.Stat(f.assetExe); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("asset was executed without a checksum entry: %v", err)
 	}
+	f.assertNoCacheFiles()
 	f.assertClean()
 }
 
@@ -552,6 +645,7 @@ func TestDownloadFailureIsReported(t *testing.T) {
 	if _, err := os.Stat(f.assetExe); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("asset was executed despite the download failure: %v", err)
 	}
+	f.assertNoCacheFiles()
 	f.assertClean()
 }
 
@@ -570,6 +664,7 @@ func TestPartialDownloadIsNotExecuted(t *testing.T) {
 	if _, err := os.Stat(f.assetExe); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("asset was executed despite the partial download: %v", err)
 	}
+	f.assertNoCacheFiles()
 	f.assertClean()
 }
 
@@ -623,6 +718,451 @@ func TestReportsLaunchProblemForInvalidExecutable(t *testing.T) {
 	f.assertClean()
 }
 
+func TestCacheFirstRunDownloadsAndSecondRunDoesNot(t *testing.T) {
+	requireHashTool(t)
+	f := newFixture(t)
+	f.withChecksum("agent-links-" + hostTarget())
+
+	first := f.run(nil, nil, "")
+	if first.status != 0 {
+		t.Fatalf("first run status = %d, stderr:\n%s", first.status, first.stderr)
+	}
+	if calls := f.downloadCalls(); calls != 2 {
+		t.Errorf("first run downloads = %d, want 2", calls)
+	}
+	if _, err := os.Stat(f.cacheAsset()); err != nil {
+		t.Fatalf("cached asset missing: %v", err)
+	}
+	f.assertModes()
+
+	f.resetDownloads()
+	// CURL_FAIL proves the second run also succeeds offline.
+	second := f.run(nil, map[string]string{"CURL_FAIL": "1"}, "")
+	if second.status != 0 {
+		t.Fatalf("second run status = %d, stderr:\n%s", second.status, second.stderr)
+	}
+	if calls := f.downloadCalls(); calls != 0 {
+		t.Errorf("second run downloads = %d, want 0", calls)
+	}
+	if _, err := os.Stat(f.assetExe); err != nil {
+		t.Errorf("cached asset was not executed: %v", err)
+	}
+	f.assertModes()
+	f.assertClean()
+}
+
+func TestCacheTamperedAssetIsRedownloaded(t *testing.T) {
+	requireHashTool(t)
+	f := newFixture(t)
+	f.withChecksum("agent-links-" + hostTarget())
+	if first := f.run(nil, nil, ""); first.status != 0 {
+		t.Fatalf("first run status = %d, stderr:\n%s", first.status, first.stderr)
+	}
+
+	if err := os.WriteFile(f.cacheAsset(), []byte("#!/bin/sh\nexit 42\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	f.resetDownloads()
+	second := f.run(nil, nil, "")
+	if second.status != 0 {
+		t.Fatalf("second run status = %d, stderr:\n%s", second.status, second.stderr)
+	}
+	if calls := f.downloadCalls(); calls != 2 {
+		t.Errorf("downloads after tampering = %d, want 2", calls)
+	}
+	got, err := os.ReadFile(f.cacheAsset())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(f.assetSrc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("cached asset was not restored after tampering")
+	}
+	f.assertModes()
+	f.assertClean()
+}
+
+func TestCacheMissingOrTruncatedChecksumIsRedownloaded(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(t *testing.T, f *fixture)
+	}{
+		{name: "missing", mutate: func(t *testing.T, f *fixture) {
+			if err := os.Remove(f.cacheSums()); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "truncated", mutate: func(t *testing.T, f *fixture) {
+			if err := os.WriteFile(f.cacheSums(), nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			requireHashTool(t)
+			f := newFixture(t)
+			f.withChecksum("agent-links-" + hostTarget())
+			if first := f.run(nil, nil, ""); first.status != 0 {
+				t.Fatalf("first run status = %d, stderr:\n%s", first.status, first.stderr)
+			}
+			tc.mutate(t, f)
+			f.resetDownloads()
+
+			second := f.run(nil, nil, "")
+			if second.status != 0 {
+				t.Fatalf("second run status = %d, stderr:\n%s", second.status, second.stderr)
+			}
+			if calls := f.downloadCalls(); calls != 2 {
+				t.Errorf("downloads after a %s checksum = %d, want 2", tc.name, calls)
+			}
+			if _, err := os.Stat(f.cacheSums()); err != nil {
+				t.Errorf("checksum cache was not restored: %v", err)
+			}
+			f.assertModes()
+			f.assertClean()
+		})
+	}
+}
+
+func TestCacheRejectsSymlinkedEntries(t *testing.T) {
+	t.Run("asset symlink", func(t *testing.T) {
+		requireHashTool(t)
+		f := newFixture(t)
+		f.withChecksum("agent-links-" + hostTarget())
+		if first := f.run(nil, nil, ""); first.status != 0 {
+			t.Fatalf("first run status = %d, stderr:\n%s", first.status, first.stderr)
+		}
+		if err := os.Remove(f.cacheAsset()); err != nil {
+			t.Fatal(err)
+		}
+		// The symlink target is a valid asset, so accepting the link would
+		// pass the checksum; the cache must reject it anyway.
+		if err := os.Symlink(f.assetSrc, f.cacheAsset()); err != nil {
+			t.Fatal(err)
+		}
+		f.resetDownloads()
+
+		second := f.run(nil, nil, "")
+		if second.status != 0 {
+			t.Fatalf("second run status = %d, stderr:\n%s", second.status, second.stderr)
+		}
+		if calls := f.downloadCalls(); calls != 2 {
+			t.Errorf("downloads after a symlinked asset = %d, want 2", calls)
+		}
+		info, err := os.Lstat(f.cacheAsset())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.Mode().IsRegular() {
+			t.Errorf("cached asset mode = %v, want a regular file", info.Mode())
+		}
+		f.assertModes()
+		f.assertClean()
+	})
+
+	t.Run("checksum symlink", func(t *testing.T) {
+		requireHashTool(t)
+		f := newFixture(t)
+		f.withChecksum("agent-links-" + hostTarget())
+		if first := f.run(nil, nil, ""); first.status != 0 {
+			t.Fatalf("first run status = %d, stderr:\n%s", first.status, first.stderr)
+		}
+		if err := os.Remove(f.cacheSums()); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(f.env["CURL_CHECKSUM_FILE"], f.cacheSums()); err != nil {
+			t.Fatal(err)
+		}
+		f.resetDownloads()
+
+		second := f.run(nil, nil, "")
+		if second.status != 0 {
+			t.Fatalf("second run status = %d, stderr:\n%s", second.status, second.stderr)
+		}
+		if calls := f.downloadCalls(); calls != 2 {
+			t.Errorf("downloads after a symlinked checksum = %d, want 2", calls)
+		}
+		info, err := os.Lstat(f.cacheSums())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.Mode().IsRegular() {
+			t.Errorf("cached checksum mode = %v, want a regular file", info.Mode())
+		}
+		f.assertModes()
+		f.assertClean()
+	})
+}
+
+func TestCachePermissions(t *testing.T) {
+	t.Run("created private", func(t *testing.T) {
+		requireHashTool(t)
+		f := newFixture(t)
+		f.withChecksum("agent-links-" + hostTarget())
+		if got := f.run(nil, nil, ""); got.status != 0 {
+			t.Fatalf("status = %d, stderr:\n%s", got.status, got.stderr)
+		}
+		f.assertModes()
+	})
+
+	t.Run("pre-existing world-writable leaf is corrected", func(t *testing.T) {
+		requireHashTool(t)
+		f := newFixture(t)
+		f.withChecksum("agent-links-" + hostTarget())
+		if err := os.MkdirAll(f.cacheLeaf(), 0o777); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(f.cacheLeaf(), 0o777); err != nil {
+			t.Fatal(err)
+		}
+		if got := f.run(nil, nil, ""); got.status != 0 {
+			t.Fatalf("status = %d, stderr:\n%s", got.status, got.stderr)
+		}
+		f.assertModes()
+	})
+
+	t.Run("leaf symlink falls back to mktemp", func(t *testing.T) {
+		requireHashTool(t)
+		f := newFixture(t)
+		f.withChecksum("agent-links-" + hostTarget())
+		versionDir := filepath.Dir(f.cacheLeaf())
+		if err := os.MkdirAll(versionDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		elsewhere := filepath.Join(f.tempDir, "elsewhere")
+		if err := os.MkdirAll(elsewhere, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(elsewhere, f.cacheLeaf()); err != nil {
+			t.Fatal(err)
+		}
+
+		got := f.run(nil, nil, "")
+		if got.status != 0 {
+			t.Fatalf("status = %d, stderr:\n%s", got.status, got.stderr)
+		}
+		entries, err := os.ReadDir(elsewhere)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 0 {
+			t.Errorf("cache wrote through a leaf symlink: %v", entries)
+		}
+		f.assertClean()
+	})
+}
+
+func TestCacheRootResolution(t *testing.T) {
+	t.Run("absolute xdg root with spaces", func(t *testing.T) {
+		requireHashTool(t)
+		f := newFixture(t)
+		f.withChecksum("agent-links-" + hostTarget())
+		xdg := filepath.Join(f.tempDir, "xdg cache")
+		got := f.run(nil, map[string]string{"XDG_CACHE_HOME": xdg}, "")
+		if got.status != 0 {
+			t.Fatalf("status = %d, stderr:\n%s", got.status, got.stderr)
+		}
+		leaf := filepath.Join(xdg, "agent-links", "v"+version, hostTarget())
+		for _, path := range []string{
+			filepath.Join(leaf, "agent-links-"+hostTarget()),
+			filepath.Join(leaf, "checksums-"+hostTarget()+".txt"),
+		} {
+			if _, err := os.Stat(path); err != nil {
+				t.Errorf("expected cache at %s: %v", path, err)
+			}
+		}
+		if _, err := os.Stat(filepath.Join(f.homeDir, ".cache", "agent-links")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("default cache was used despite an absolute XDG_CACHE_HOME: %v", err)
+		}
+	})
+
+	t.Run("relative xdg falls back to home", func(t *testing.T) {
+		requireHashTool(t)
+		f := newFixture(t)
+		f.withChecksum("agent-links-" + hostTarget())
+		got := f.run(nil, map[string]string{"XDG_CACHE_HOME": "relative-cache"}, "")
+		if got.status != 0 {
+			t.Fatalf("status = %d, stderr:\n%s", got.status, got.stderr)
+		}
+		if _, err := os.Stat(f.cacheAsset()); err != nil {
+			t.Errorf("default home cache missing: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(f.tempDir, "relative-cache")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("relative XDG_CACHE_HOME was used: %v", err)
+		}
+	})
+}
+
+func TestCacheRootFallbacks(t *testing.T) {
+	t.Run("group-writable cache root", func(t *testing.T) {
+		requireHashTool(t)
+		f := newFixture(t)
+		f.withChecksum("agent-links-" + hostTarget())
+		root := filepath.Join(f.tempDir, "shared-cache")
+		if err := os.MkdirAll(root, 0o777); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(root, 0o777); err != nil {
+			t.Fatal(err)
+		}
+		got := f.run(nil, map[string]string{"XDG_CACHE_HOME": root}, "")
+		if got.status != 0 {
+			t.Fatalf("status = %d, stderr:\n%s", got.status, got.stderr)
+		}
+		if _, err := os.Stat(filepath.Join(root, "agent-links")); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("an unsafe cache root was used: %v", err)
+		}
+		if _, err := os.Stat(f.assetExe); err != nil {
+			t.Errorf("asset was not executed from the fallback: %v", err)
+		}
+		f.assertClean()
+	})
+
+	t.Run("cache root is a regular file", func(t *testing.T) {
+		requireHashTool(t)
+		f := newFixture(t)
+		f.withChecksum("agent-links-" + hostTarget())
+		blocked := filepath.Join(f.tempDir, "cache-file")
+		if err := os.WriteFile(blocked, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got := f.run(nil, map[string]string{"XDG_CACHE_HOME": blocked}, "")
+		if got.status != 0 {
+			t.Fatalf("status = %d, stderr:\n%s", got.status, got.stderr)
+		}
+		if _, err := os.Stat(f.assetExe); err != nil {
+			t.Errorf("asset was not executed from the fallback: %v", err)
+		}
+		f.assertClean()
+	})
+
+	t.Run("home unset", func(t *testing.T) {
+		requireHashTool(t)
+		f := newFixture(t)
+		f.withChecksum("agent-links-" + hostTarget())
+		delete(f.env, "HOME")
+		delete(f.env, "XDG_CACHE_HOME")
+		got := f.run(nil, nil, "")
+		if got.status != 0 {
+			t.Fatalf("status = %d, stderr:\n%s", got.status, got.stderr)
+		}
+		if _, err := os.Stat(f.assetExe); err != nil {
+			t.Errorf("asset was not executed from the fallback: %v", err)
+		}
+		f.assertClean()
+	})
+}
+
+// TestWarmCacheNeedsNoCurlOrMktemp removes both tools from PATH: a verified
+// cache hit must run with only the shell, SHA-256, and core file utilities.
+func TestWarmCacheNeedsNoCurlOrMktemp(t *testing.T) {
+	requireHashTool(t)
+	f := newFixture(t)
+	f.withChecksum("agent-links-" + hostTarget())
+	if first := f.run(nil, nil, ""); first.status != 0 {
+		t.Fatalf("first run status = %d, stderr:\n%s", first.status, first.stderr)
+	}
+
+	minimal := filepath.Join(f.tempDir, "minimal-bin")
+	if err := os.MkdirAll(minimal, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(f.binDir, "uname"), filepath.Join(minimal, "uname")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"id", "shasum", "sha256sum", "find", "awk", "chmod", "mkdir", "rm", "mv"} {
+		if name == "sha256sum" && !lookPathIn(systemPath, name) {
+			continue
+		}
+		if name == "shasum" && !lookPathIn(systemPath, name) {
+			continue
+		}
+		source := executableIn(systemPath, name)
+		if source == "" {
+			t.Fatalf("%s is unavailable on %s", name, systemPath)
+		}
+		if err := os.Symlink(source, filepath.Join(minimal, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	f.resetDownloads()
+	second := f.run(nil, map[string]string{"PATH": minimal, "CURL_FAIL": "1"}, "")
+	if second.status != 0 {
+		t.Fatalf("warm-cache run status = %d, stderr:\n%s", second.status, second.stderr)
+	}
+	if calls := f.downloadCalls(); calls != 0 {
+		t.Errorf("warm-cache downloads = %d, want 0", calls)
+	}
+	if _, err := os.Stat(f.assetExe); err != nil {
+		t.Errorf("cached asset was not executed: %v", err)
+	}
+}
+
+// TestCacheWorksUnderDash guards the portable ownership check: dash's test
+// rejects -O, so the script uses find -user instead. CI's Linux runner has
+// dash; macOS skips this test.
+func TestCacheWorksUnderDash(t *testing.T) {
+	requireHashTool(t)
+	dash, err := exec.LookPath("dash")
+	if err != nil {
+		t.Skip("dash is unavailable")
+	}
+	f := newFixture(t)
+	f.withChecksum("agent-links-" + hostTarget())
+	if first := f.run(nil, nil, ""); first.status != 0 {
+		t.Fatalf("warm-up run status = %d, stderr:\n%s", first.status, first.stderr)
+	}
+	f.resetDownloads()
+
+	cmd := exec.Command(dash, runSh)
+	cmd.Dir = f.tempDir
+	cmd.Env = f.envWith(map[string]string{"CURL_FAIL": "1"})
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("dash warm-cache run failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if calls := f.downloadCalls(); calls != 0 {
+		t.Errorf("dash warm-cache downloads = %d, want 0", calls)
+	}
+	if _, err := os.Stat(f.assetExe); err != nil {
+		t.Errorf("cached asset was not executed under dash: %v", err)
+	}
+}
+
+func TestCachePreservesCallerUmask(t *testing.T) {
+	requireHashTool(t)
+	f := newFixture(t)
+	f.withChecksum("agent-links-" + hostTarget())
+	umaskCapture := filepath.Join(f.tempDir, "asset-umask")
+	wrapper := filepath.Join(f.tempDir, "umask-wrapper")
+	f.writeExecutable(wrapper, "#!/bin/sh\numask 022\nexec bash "+shellQuote(runSh)+" \"$@\"\n")
+
+	cmd := exec.Command(wrapper)
+	cmd.Dir = f.tempDir
+	cmd.Env = f.envWith(map[string]string{"UMASK_CAPTURE": umaskCapture})
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("wrapper run failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+
+	got := strings.TrimSpace(f.readCapture(umaskCapture))
+	if got != "0022" && got != "022" {
+		t.Errorf("child umask = %q, want 0022", got)
+	}
+	// The cache stays private even though the caller used umask 022.
+	f.assertModes()
+	f.assertClean()
+}
+
 func TestPipelinesRunShThroughAShell(t *testing.T) {
 	requireHashTool(t)
 	f := newFixture(t)
@@ -666,6 +1206,9 @@ func TestWithoutTTYInputIsNotRedirected(t *testing.T) {
 	f.assertClean()
 }
 
+// TestRestoresInteractiveInputFromTTY keeps the runner's </dev/tty redirect:
+// the binary, not the runner, now opens /dev/tty for Bubble Tea input, and the
+// redirect still makes the later plain prompts see a terminal.
 func TestRestoresInteractiveInputFromTTY(t *testing.T) {
 	requireHashTool(t)
 	form := pickScriptForm()

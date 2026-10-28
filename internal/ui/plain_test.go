@@ -74,6 +74,15 @@ func TestCheckSelectedFile(t *testing.T) {
 	})
 }
 
+func TestCancelledInteractiveLine(t *testing.T) {
+	if got := cancelledInteractiveLine(false); got != "Cancelled. No changes made." {
+		t.Errorf("cancelledInteractiveLine(false) = %q", got)
+	}
+	if got := cancelledInteractiveLine(true); got != "Cancelled. No links were changed." {
+		t.Errorf("cancelledInteractiveLine(true) = %q", got)
+	}
+}
+
 func TestCreateBlankSource(t *testing.T) {
 	t.Run("creates missing directories and an empty file", func(t *testing.T) {
 		source := filepath.Join(t.TempDir(), ".config", "agents", "AGENTS.md")
