@@ -24,6 +24,10 @@ type Prompter struct {
 	Out         io.Writer
 	Err         io.Writer
 	Interactive bool
+
+	// TTY, when non-nil, is the controlling terminal handed to Bubble Tea as
+	// its input. The CLI owns and closes it; the Prompter only reads from it.
+	TTY io.Reader
 }
 
 // Ask writes the prompt and reads one line. ok is false when stdin is closed
@@ -38,16 +42,17 @@ func (p Prompter) Ask(message string) (answer string, ok bool) {
 	return strings.TrimRight(line, "\r\n"), true
 }
 
-// EnsureSourceFile returns true when the canonical instructions file exists,
-// running the copy / blank / cancel setup flow when it is missing. It returns
-// false when the user cancelled.
-func (p Prompter) EnsureSourceFile(ctx harness.Context) (bool, error) {
+// EnsureSourceFile reports whether the canonical instructions file exists,
+// running the copy / blank / cancel setup flow when it is missing. created
+// reports that this run created the file, so the interactive outcomes can say
+// that links, not files, were the only thing left unchanged.
+func (p Prompter) EnsureSourceFile(ctx harness.Context) (ok bool, created bool, err error) {
 	exists, err := harness.SourceFileExists(ctx)
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	if exists {
-		return true, nil
+		return true, false, nil
 	}
 	if p.Interactive {
 		return p.ensureSourceFileTUI(ctx)
@@ -58,7 +63,7 @@ func (p Prompter) EnsureSourceFile(ctx harness.Context) (bool, error) {
 		choice, ok := p.Ask("Choose: [1] copy an existing instructions file  [2] create a blank AGENTS.md  [q] cancel: ")
 		if !ok || strings.ToLower(strings.TrimSpace(choice)) == "q" {
 			fmt.Fprintln(p.Out, "Cancelled. No changes made.")
-			return false, nil
+			return false, false, nil
 		}
 
 		switch strings.ToLower(strings.TrimSpace(choice)) {
@@ -66,7 +71,7 @@ func (p Prompter) EnsureSourceFile(ctx harness.Context) (bool, error) {
 			path, ok := p.Ask("Path to the existing instructions file: ")
 			if !ok {
 				fmt.Fprintln(p.Out, "Cancelled. No changes made.")
-				return false, nil
+				return false, false, nil
 			}
 			selectedPath := SelectedFilePath(path, ctx.Home, ctx.Cwd())
 			if err := CheckSelectedFile(selectedPath); err != nil {
@@ -74,16 +79,16 @@ func (p Prompter) EnsureSourceFile(ctx harness.Context) (bool, error) {
 				continue
 			}
 			if err := CopySourceFile(ctx.SourceFile, selectedPath); err != nil {
-				return false, err
+				return false, false, err
 			}
 			fmt.Fprintf(p.Out, "Created %s from %s\n", ctx.SourceFile, selectedPath)
-			return true, nil
+			return true, true, nil
 		case "2":
 			if err := CreateBlankSource(ctx.SourceFile); err != nil {
-				return false, err
+				return false, false, err
 			}
 			fmt.Fprintf(p.Out, "Created blank instructions file: %s\n", ctx.SourceFile)
-			return true, nil
+			return true, true, nil
 		default:
 			fmt.Fprintln(p.Out, `Enter "1" to copy a file, "2" to create a blank file, or "q" to cancel.`)
 		}
@@ -92,42 +97,43 @@ func (p Prompter) EnsureSourceFile(ctx harness.Context) (bool, error) {
 
 // ensureSourceFileTUI runs the setup flow as a Bubble Tea program and prints
 // its outcome after the program has left the alternate screen.
-func (p Prompter) ensureSourceFileTUI(ctx harness.Context) (bool, error) {
+func (p Prompter) ensureSourceFileTUI(ctx harness.Context) (bool, bool, error) {
 	model := NewSetupModel(ctx)
-	if err := runProgram(model); err != nil {
-		return false, err
+	if err := runProgram(model, p.TTY); err != nil {
+		return false, false, err
 	}
 	if model.Err != nil {
-		return false, model.Err
+		return false, false, model.Err
 	}
 	if !model.Created {
 		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
-		return false, nil
+		return false, false, nil
 	}
 	if model.From == "" {
 		fmt.Fprintf(p.Out, "Created blank instructions file: %s\n", ctx.SourceFile)
 	} else {
 		fmt.Fprintf(p.Out, "Created %s from %s\n", ctx.SourceFile, model.From)
 	}
-	return true, nil
+	return true, true, nil
 }
 
 // Confirm asks for approval after showing the plan text. With a terminal the
 // review screen applies on a single enter and cancels on esc; without one it
 // prompts for an explicit "yes". needsTerminal, when set, becomes an error
-// instead of a prompt when the session has no terminal. It returns false when
-// the user cancelled.
-func (p Prompter) Confirm(planText, prompt, confirmation, needsTerminal string) (bool, error) {
+// instead of a prompt when the session has no terminal. created reports that
+// the setup step created the instructions file this run; it only changes the
+// interactive cancellation copy. It returns false when the user cancelled.
+func (p Prompter) Confirm(planText, prompt, confirmation, needsTerminal string, created bool) (bool, error) {
 	if p.Interactive {
 		model := NewConfirmModel(planText)
-		if err := runProgram(model); err != nil {
+		if err := runProgram(model, p.TTY); err != nil {
 			return false, err
 		}
 		if model.Confirmed {
 			fmt.Fprintln(p.Out, confirmation)
 			return true, nil
 		}
-		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
+		fmt.Fprintln(p.Out, cancelledInteractiveLine(created))
 		return false, nil
 	}
 
@@ -146,6 +152,16 @@ func (p Prompter) Confirm(planText, prompt, confirmation, needsTerminal string) 
 	}
 	fmt.Fprintln(p.Out, "Cancelled. No changes made.")
 	return false, nil
+}
+
+// cancelledInteractiveLine is the review screen's cancellation copy. When the
+// setup step created the instructions file this run, only the links were left
+// unchanged; plain-text output keeps its historical wording.
+func cancelledInteractiveLine(created bool) string {
+	if created {
+		return "Cancelled. No links were changed."
+	}
+	return "Cancelled. No changes made."
 }
 
 // RenderTable renders the harness table without a trailing newline. A

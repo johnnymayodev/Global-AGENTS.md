@@ -38,6 +38,12 @@ type Options struct {
 	Stdout      io.Writer
 	Stderr      io.Writer
 	Interactive bool
+
+	// TTY is the controlling terminal handed to Bubble Tea as its input.
+	// Run opens and closes it when the session is interactive; RunWith leaves
+	// it nil in tests, which keeps the inherited-stdin behavior. RunWith does
+	// not close a caller-supplied TTY.
+	TTY *os.File
 }
 
 // Run executes the CLI against the process environment, standard streams, and
@@ -47,14 +53,32 @@ func Run(args []string) int {
 	if err != nil {
 		return fail(os.Stderr, err)
 	}
-	return RunWith(args, Options{
+	interactive := term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd())
+	opts := Options{
 		LookupEnv:   os.LookupEnv,
 		Cwd:         cwd,
 		Stdin:       os.Stdin,
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
-		Interactive: term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd()),
-	})
+		Interactive: interactive,
+	}
+	if interactive {
+		// Bubble Tea's cancel reader picks its macOS kqueue path when the
+		// input file's name is not /dev/tty, and that path cannot interrupt a
+		// read on a terminal opened by the shell as </dev/tty. Opening the
+		// controlling terminal here makes it a select-based reader and removes
+		// the 500 ms shutdown stall. If this fails, stdin remains a usable
+		// fallback.
+		if tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0); err == nil {
+			if term.IsTerminal(tty.Fd()) {
+				opts.TTY = tty
+				defer tty.Close()
+			} else {
+				tty.Close()
+			}
+		}
+	}
+	return RunWith(args, opts)
 }
 
 // RunWith executes the CLI with the given arguments and returns the process
@@ -75,6 +99,7 @@ func RunWith(args []string, opts Options) int {
 		Out:         opts.Stdout,
 		Err:         opts.Stderr,
 		Interactive: opts.Interactive,
+		TTY:         opts.TTY,
 	}
 
 	var runErr error
@@ -202,50 +227,47 @@ func launchFlowTUI(ctx harness.Context, p ui.Prompter, showAll bool) error {
 		SkillsError:       skillsErr,
 		Skills:            &matrix,
 		SkillsReview:      skillsReconcileReview(matrix, ctx, p),
-	})
+	}, p.TTY)
 	if err != nil {
 		return err
 	}
 	for _, notice := range result.Notices {
 		fmt.Fprintln(p.Out, notice)
 	}
-
-	if result.ModeChosen && result.Mode == ui.ModeSkills && result.NoChanges {
-		if len(skills) == 0 {
-			printNoSkills(ctx, p.Out)
-			return nil
-		}
-		if len(matrix.Harnesses) == 0 {
-			return printNoSkillsHarnesses(matrix, ctx, p.Out)
-		}
+	if line := wizardOutcome(result); line != "" {
+		fmt.Fprintln(p.Out, line)
 	}
-	if result.ModeChosen && result.Mode == ui.ModeInstructions && len(visibleInstructions) == 0 {
-		table, err := ui.RenderTable(visibleInstructions, ctx, current, -1)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(p.Out, table)
-		fmt.Fprintln(p.Out, "No supported harnesses were detected. Use `agent-links --all` to show every supported target.")
-		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
-		return nil
-	}
-
-	switch {
-	case result.Cancelled:
-		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
-	case result.NoChanges:
-		fmt.Fprintln(p.Out, "No changes made.")
-	case result.Applied:
+	if result.Applied {
 		fmt.Fprintln(p.Out, result.Review.Summary)
 		return result.Review.Apply()
 	}
 	return nil
 }
 
+// wizardOutcome is the wizard's closing line. A setup notice means this run
+// created the instructions file, so the only thing that could remain unchanged
+// is the links.
+func wizardOutcome(result ui.WizardResult) string {
+	created := len(result.Notices) > 0
+	switch {
+	case result.Cancelled:
+		if created {
+			return "Cancelled. No links were changed."
+		}
+		return "Cancelled. No changes made."
+	case result.NoChanges:
+		if created {
+			return "No links were changed."
+		}
+		return "No changes made."
+	}
+	return ""
+}
+
 // pickerFlowPlain prints the table and the non-interactive notice; choosing
 // harnesses needs a terminal.
 func pickerFlowPlain(ctx harness.Context, p ui.Prompter, showAll bool) error {
-	ok, err := p.EnsureSourceFile(ctx)
+	ok, _, err := p.EnsureSourceFile(ctx)
 	if err != nil || !ok {
 		return err
 	}
@@ -287,7 +309,7 @@ func pickerFlowTUI(ctx harness.Context, p ui.Prompter, showAll bool) error {
 
 	if len(visible) == 0 {
 		// Nothing to pick: still run first-run setup, then print the table.
-		ok, err := p.EnsureSourceFile(ctx)
+		ok, _, err := p.EnsureSourceFile(ctx)
 		if err != nil || !ok {
 			return err
 		}
@@ -307,19 +329,17 @@ func pickerFlowTUI(ctx harness.Context, p ui.Prompter, showAll bool) error {
 		Initial:   current,
 		Setup:     !exists,
 		Review:    reconcileReview(visible, ctx, p),
-	})
+	}, p.TTY)
 	if err != nil {
 		return err
 	}
 	for _, notice := range result.Notices {
 		fmt.Fprintln(p.Out, notice)
 	}
-	switch {
-	case result.Cancelled:
-		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
-	case result.NoChanges:
-		fmt.Fprintln(p.Out, "No changes made.")
-	case result.Applied:
+	if line := wizardOutcome(result); line != "" {
+		fmt.Fprintln(p.Out, line)
+	}
+	if result.Applied {
 		fmt.Fprintln(p.Out, result.Review.Summary)
 		return result.Review.Apply()
 	}
@@ -349,14 +369,24 @@ func listFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
 
 // linkFlow ensures the source file and links every supported harness.
 func linkFlow(ctx harness.Context, p ui.Prompter) error {
-	ok, err := p.EnsureSourceFile(ctx)
+	ok, created, err := p.EnsureSourceFile(ctx)
 	if err != nil || !ok {
 		return err
 	}
-	return linkTargets(ctx.Harnesses, ctx, p)
+	return linkTargets(ctx.Harnesses, ctx, p, created)
 }
 
-func linkTargets(targets []harness.Harness, ctx harness.Context, p ui.Prompter) error {
+// linkNoChangesLine is the no-op outcome for a link plan. Interactive runs
+// that created the instructions file this run report that only the links were
+// unchanged; plain-text output keeps its historical wording.
+func linkNoChangesLine(created, interactive bool) string {
+	if created && interactive {
+		return "No links were changed."
+	}
+	return "No changes made."
+}
+
+func linkTargets(targets []harness.Harness, ctx harness.Context, p ui.Prompter, created bool) error {
 	linkPlan, err := plan.Links(targets, ctx)
 	if err != nil {
 		return err
@@ -364,7 +394,7 @@ func linkTargets(targets []harness.Harness, ctx harness.Context, p ui.Prompter) 
 	planText := plan.RenderLinkPlan(linkPlan, ctx)
 	if len(linkPlan.ToCreate) == 0 {
 		fmt.Fprintln(p.Out, planText)
-		fmt.Fprintln(p.Out, "No changes made.")
+		fmt.Fprintln(p.Out, linkNoChangesLine(created, p.Interactive))
 		return printLinkNotes(targets, ctx, p.Err)
 	}
 
@@ -373,6 +403,7 @@ func linkTargets(targets []harness.Harness, ctx harness.Context, p ui.Prompter) 
 		fmt.Sprintf(`Type "yes" to create the %d symlink(s) listed above: `, len(linkPlan.ToCreate)),
 		fmt.Sprintf("Confirmation received; creating %d symlink(s).", len(linkPlan.ToCreate)),
 		"",
+		created,
 	)
 	if err != nil {
 		return err
@@ -404,6 +435,7 @@ func unlinkFlow(ctx harness.Context, p ui.Prompter) error {
 		fmt.Sprintf(`Type "yes" to remove the %d managed symlink(s) listed above: `, len(unlinkPlan.ToRemove)),
 		fmt.Sprintf("Confirmation received; removing %d managed symlink(s).", len(unlinkPlan.ToRemove)),
 		"removal requires interactive confirmation; no changes made",
+		false,
 	)
 	if err != nil {
 		return err
@@ -556,19 +588,17 @@ func skillsFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
 		Mode:         ui.ModeSkills,
 		Skills:       &matrix,
 		SkillsReview: skillsReconcileReview(matrix, ctx, p),
-	})
+	}, p.TTY)
 	if err != nil {
 		return err
 	}
 	for _, notice := range result.Notices {
 		fmt.Fprintln(p.Out, notice)
 	}
-	switch {
-	case result.Cancelled:
-		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
-	case result.NoChanges:
-		fmt.Fprintln(p.Out, "No changes made.")
-	case result.Applied:
+	if line := wizardOutcome(result); line != "" {
+		fmt.Fprintln(p.Out, line)
+	}
+	if result.Applied {
 		fmt.Fprintln(p.Out, result.Review.Summary)
 		return result.Review.Apply()
 	}
@@ -659,6 +689,7 @@ func skillsLinkFlow(ctx harness.Context, p ui.Prompter, name string) error {
 		fmt.Sprintf(`Type "yes" to create the %d symlink(s) listed above: `, len(skillsPlan.ToCreate)),
 		fmt.Sprintf("Confirmation received; creating %d symlink(s).", len(skillsPlan.ToCreate)),
 		"",
+		false,
 	)
 	if err != nil {
 		return err
@@ -693,6 +724,7 @@ func skillsUnlinkFlow(ctx harness.Context, p ui.Prompter, name string) error {
 		fmt.Sprintf(`Type "yes" to remove the %d managed symlink(s) listed above: `, len(skillsPlan.ToRemove)),
 		fmt.Sprintf("Confirmation received; removing %d managed symlink(s).", len(skillsPlan.ToRemove)),
 		"removal requires interactive confirmation; no changes made",
+		false,
 	)
 	if err != nil {
 		return err
@@ -797,17 +829,6 @@ func printNoSkills(ctx harness.Context, out io.Writer) {
 	fmt.Fprintf(out, "No shared skills found at %s.\n", harness.DisplayPath(ctx.SourceSkillsDir, ctx.Home))
 	fmt.Fprintln(out, "Add <skill-name>/SKILL.md (plus any supporting files), then rerun agent-links.")
 	fmt.Fprintln(out, "No changes made.")
-}
-
-func printNoSkillsHarnesses(matrix ui.SkillsMatrix, ctx harness.Context, out io.Writer) error {
-	table, err := ui.RenderSkillsTable(matrix, ctx, managedSkillSelection(matrix))
-	if err != nil {
-		return err
-	}
-	fmt.Fprintln(out, table)
-	fmt.Fprintln(out, "No supported harnesses were detected. Use `agent-links skills --all` to show every supported target.")
-	fmt.Fprintln(out, "No changes made.")
-	return nil
 }
 
 // managedSelection collects the IDs whose target is already a managed link.

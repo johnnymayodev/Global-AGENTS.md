@@ -56,6 +56,7 @@ func testHarnesses(ctx harness.Context) []harness.Harness {
 
 func keyUp() tea.KeyPressMsg    { return tea.KeyPressMsg{Code: tea.KeyUp} }
 func keyDown() tea.KeyPressMsg  { return tea.KeyPressMsg{Code: tea.KeyDown} }
+func keyLeft() tea.KeyPressMsg  { return tea.KeyPressMsg{Code: tea.KeyLeft} }
 func keyEnter() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyEnter} }
 func keyEsc() tea.KeyPressMsg   { return tea.KeyPressMsg{Code: tea.KeyEscape} }
 func keySpace() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "} }
@@ -72,6 +73,18 @@ func assertQuits(t *testing.T, cmd tea.Cmd) {
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Fatalf("command returned %T, want tea.QuitMsg", cmd())
+	}
+}
+
+// assertNotQuit fails when cmd exits the program; other commands (the setup
+// input's cursor blink) are expected and safe to run.
+func assertNotQuit(t *testing.T, cmd tea.Cmd) {
+	t.Helper()
+	if cmd == nil {
+		return
+	}
+	if _, ok := cmd().(tea.QuitMsg); ok {
+		t.Fatal("unexpected quit")
 	}
 }
 
@@ -543,6 +556,352 @@ func TestWizardSetupCopyPath(t *testing.T) {
 		assertQuits(t, cmd)
 		if result := fresh.result(); !result.Cancelled {
 			t.Fatalf("result = %+v, want cancelled", result)
+		}
+	})
+}
+
+func newLaunchSelectWizard(t *testing.T, ctx harness.Context, initial map[string]bool) *wizard {
+	t.Helper()
+	return newWizard(WizardFlow{
+		Harnesses: testHarnesses(ctx),
+		Ctx:       ctx,
+		Initial:   initial,
+		Launch:    true,
+		Review:    applyReview(nil),
+	})
+}
+
+func TestLaunchSelectEscReturnsToMode(t *testing.T) {
+	ctx := testContext(t)
+	m := newLaunchSelectWizard(t, ctx, map[string]bool{"beta": true})
+	m.Update(keyRune('1'))
+	if m.step != stepSelect || !m.modeChosen {
+		t.Fatalf("step = %v, modeChosen = %v; want the picker", m.step, m.modeChosen)
+	}
+
+	m.Update(keyDown())
+	m.Update(keyDown())
+	m.Update(keySpace()) // gamma on
+	_, cmd := m.Update(keyEsc())
+	if cmd != nil || m.cancelled {
+		t.Fatalf("esc at launch select should return to the mode menu; cancelled = %v", m.cancelled)
+	}
+	if m.step != stepMode || m.modeChosen || m.blocked != nil {
+		t.Fatalf("step = %v, modeChosen = %v, blocked = %v", m.step, m.modeChosen, m.blocked)
+	}
+	if m.cursor != 2 {
+		t.Errorf("cursor = %d, want 2", m.cursor)
+	}
+	selection := m.Selection()
+	if !selection["beta"] || !selection["gamma"] {
+		t.Errorf("selection = %v, want beta and gamma", selection)
+	}
+}
+
+func TestLaunchReviewEscBacksThroughSelectToMode(t *testing.T) {
+	ctx := testContext(t)
+	m := newLaunchSelectWizard(t, ctx, nil)
+	m.Update(keyRune('1'))
+	m.Update(keySpace())
+	m.Update(keyEnter())
+	if m.step != stepReview {
+		t.Fatalf("step = %v, want review", m.step)
+	}
+
+	m.Update(keyEsc())
+	if m.step != stepSelect || !m.Selection()["alpha"] {
+		t.Fatalf("step = %v, selection = %v; want select with alpha", m.step, m.Selection())
+	}
+	m.Update(keyEsc())
+	if m.step != stepMode || m.modeChosen {
+		t.Fatalf("step = %v, modeChosen = %v; want the mode menu", m.step, m.modeChosen)
+	}
+	if !m.Selection()["alpha"] {
+		t.Error("selection was lost after returning to the mode menu")
+	}
+}
+
+func TestLaunchSetupMenuEscReturnsToMode(t *testing.T) {
+	ctx := testContext(t)
+	m := newWizard(WizardFlow{Harnesses: testHarnesses(ctx), Ctx: ctx, Launch: true, Setup: true, Review: applyReview(nil)})
+	m.Update(keyRune('1'))
+	if m.step != stepSetup {
+		t.Fatalf("step = %v, want setup", m.step)
+	}
+
+	_, cmd := m.Update(keyEsc())
+	if cmd != nil || m.cancelled {
+		t.Fatalf("esc at the setup menu should return to the mode menu; cancelled = %v", m.cancelled)
+	}
+	if m.step != stepMode || m.modeChosen {
+		t.Fatalf("step = %v, modeChosen = %v", m.step, m.modeChosen)
+	}
+
+	// The path step still backs out to the setup menu, not to the mode menu.
+	m.Update(keyRune('1'))
+	_, cmd = m.Update(keyRune('1'))
+	assertNotQuit(t, cmd)
+	if m.setup.step != setupCopyPath {
+		t.Fatalf("setup step = %v, want copy path", m.setup.step)
+	}
+	m.Update(keyEsc())
+	if m.step != stepSetup || m.setup.step != setupMenu {
+		t.Fatalf("step = %v, setup step = %v; want the setup menu", m.step, m.setup.step)
+	}
+}
+
+func TestLaunchSetupCreationSkipsSetupOnReentry(t *testing.T) {
+	ctx := testContext(t)
+	m := newWizard(WizardFlow{Harnesses: testHarnesses(ctx), Ctx: ctx, Launch: true, Setup: true, Review: applyReview(nil)})
+	m.Update(keyRune('1'))
+	m.Update(keyRune('2'))
+	if _, err := os.Stat(ctx.SourceFile); err != nil {
+		t.Fatalf("blank source file not created: %v", err)
+	}
+	if m.flow.Setup {
+		t.Error("flow.Setup still true after creating the file")
+	}
+	if m.step != stepSelect {
+		t.Fatalf("step = %v, want select", m.step)
+	}
+
+	m.Update(keyEsc())
+	if m.step != stepMode {
+		t.Fatalf("step = %v, want mode", m.step)
+	}
+	m.Update(keyRune('1'))
+	if m.step != stepSelect {
+		t.Fatalf("step = %v, want select directly (setup must be skipped)", m.step)
+	}
+	if strings.Contains(viewText(m), "No shared instructions file found at") {
+		t.Errorf("setup screen was shown again:\n%s", viewText(m))
+	}
+}
+
+func TestLaunchBrokenModesAreRecoverable(t *testing.T) {
+	ctx := testContext(t)
+	want := os.ErrPermission
+	matrix, _ := testMatrix(t)
+
+	t.Run("broken instructions", func(t *testing.T) {
+		m := newWizard(WizardFlow{
+			Ctx:               ctx,
+			Launch:            true,
+			InstructionsError: want,
+			Skills:            matrix,
+			SkillsReview:      skillsReview(nil),
+		})
+		m.Update(keyRune('1'))
+		if m.step != stepError || m.blocked != want || m.err != nil {
+			t.Fatalf("step = %v, blocked = %v, err = %v", m.step, m.blocked, m.err)
+		}
+		m.Update(keyEsc())
+		if m.step != stepMode || m.blocked != nil || m.modeChosen {
+			t.Fatalf("step = %v, blocked = %v, modeChosen = %v", m.step, m.blocked, m.modeChosen)
+		}
+		m.Update(keyRune('2'))
+		if m.step != stepMatrix || m.err != nil {
+			t.Fatalf("step = %v, err = %v; want the healthy skills matrix", m.step, m.err)
+		}
+	})
+
+	t.Run("broken skills", func(t *testing.T) {
+		m := newWizard(WizardFlow{
+			Ctx:         ctx,
+			Launch:      true,
+			Harnesses:   testHarnesses(ctx),
+			SkillsError: want,
+			Review:      applyReview(nil),
+		})
+		m.Update(keyRune('2'))
+		if m.step != stepError || m.blocked != want || m.err != nil {
+			t.Fatalf("step = %v, blocked = %v, err = %v", m.step, m.blocked, m.err)
+		}
+		m.Update(keyEsc())
+		m.Update(keyRune('1'))
+		if m.step != stepSelect || m.err != nil {
+			t.Fatalf("step = %v, err = %v; want the healthy picker", m.step, m.err)
+		}
+	})
+}
+
+func TestLaunchCtrlCCancelsEveryStep(t *testing.T) {
+	ctx := testContext(t)
+	matrix, _ := testMatrix(t)
+	want := os.ErrPermission
+
+	cases := []struct {
+		name  string
+		model *wizard
+		keys  []tea.KeyPressMsg
+	}{
+		{name: "mode", model: newWizard(WizardFlow{Ctx: ctx, Launch: true})},
+		{name: "setup menu", model: newWizard(WizardFlow{Ctx: ctx, Launch: true, Setup: true}), keys: []tea.KeyPressMsg{keyRune('1')}},
+		{name: "setup path", model: newWizard(WizardFlow{Ctx: ctx, Launch: true, Setup: true}), keys: []tea.KeyPressMsg{keyRune('1'), keyRune('1')}},
+		{name: "select", model: newLaunchSelectWizard(t, ctx, nil), keys: []tea.KeyPressMsg{keyRune('1')}},
+		{name: "matrix", model: newWizard(WizardFlow{Ctx: ctx, Launch: true, Skills: matrix, SkillsReview: skillsReview(nil)}), keys: []tea.KeyPressMsg{keyRune('2')}},
+		{name: "review", model: newLaunchSelectWizard(t, ctx, nil), keys: []tea.KeyPressMsg{keyRune('1'), keySpace(), keyEnter()}},
+		{name: "error", model: newWizard(WizardFlow{Ctx: ctx, Launch: true, SkillsError: want}), keys: []tea.KeyPressMsg{keyRune('2')}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, key := range tc.keys {
+				_, cmd := tc.model.Update(key)
+				assertNotQuit(t, cmd)
+			}
+			_, cmd := tc.model.Update(keyCtrlC())
+			assertQuits(t, cmd)
+			if result := tc.model.result(); !result.Cancelled || result.Applied || result.NoChanges {
+				t.Fatalf("result = %+v, want cancelled only", result)
+			}
+		})
+	}
+}
+
+func TestModeMenuCancelRowLeavesModeUnchosen(t *testing.T) {
+	ctx := testContext(t)
+	m := newWizard(WizardFlow{Ctx: ctx, Launch: true})
+	m.Update(keyUp()) // wraps to the Cancel row
+	_, cmd := m.Update(keyEnter())
+	assertQuits(t, cmd)
+	result := m.result()
+	if !result.Cancelled || result.ModeChosen {
+		t.Fatalf("result = %+v, want cancelled before a mode choice", result)
+	}
+}
+
+func TestEmptySelectIsRecoverable(t *testing.T) {
+	ctx := testContext(t)
+	m := newWizard(WizardFlow{Ctx: ctx, Launch: true})
+	m.Update(keyRune('1'))
+	if m.step != stepSelect {
+		t.Fatalf("step = %v, want an empty select screen", m.step)
+	}
+	for _, want := range []string{"(none detected)", "No supported harnesses were detected.", "Use --all"} {
+		if !strings.Contains(flatText(m), want) {
+			t.Errorf("empty select view missing %q:\n%s", want, viewText(m))
+		}
+	}
+
+	for _, key := range []tea.KeyPressMsg{keyUp(), keyDown(), keySpace(), keyRune('a'), keyRune('n')} {
+		if _, cmd := m.Update(key); cmd != nil {
+			t.Fatalf("%v quit an empty select screen", key)
+		}
+	}
+	if _, cmd := m.Update(keyEsc()); cmd != nil {
+		t.Fatal("esc should return to the mode menu, not quit")
+	}
+	if m.step != stepMode {
+		t.Fatalf("step = %v, want mode", m.step)
+	}
+
+	// Enter reports no changes instead of panicking or printing an empty table.
+	fresh := newWizard(WizardFlow{Ctx: ctx, Launch: true})
+	fresh.Update(keyRune('1'))
+	_, cmd := fresh.Update(keyEnter())
+	assertQuits(t, cmd)
+	if result := fresh.result(); !result.NoChanges || result.Cancelled {
+		t.Fatalf("result = %+v, want no changes", result)
+	}
+}
+
+func TestEmptyMatrixVariantsAreRecoverable(t *testing.T) {
+	ctx := testContext(t)
+	harnesses := testHarnesses(ctx)
+	cases := []struct {
+		name        string
+		matrix      *SkillsMatrix
+		wantSkills  bool
+		wantHarness bool
+	}{
+		{name: "nil", matrix: nil, wantSkills: true, wantHarness: true},
+		{name: "no skills", matrix: &SkillsMatrix{Harnesses: harnesses}, wantSkills: true, wantHarness: false},
+		{name: "no harnesses", matrix: &SkillsMatrix{Skills: []string{"alpha"}}, wantSkills: false, wantHarness: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newWizard(WizardFlow{Ctx: ctx, Launch: true, Skills: tc.matrix})
+			m.Update(keyRune('2'))
+			if m.step != stepMatrix {
+				t.Fatalf("step = %v, want the matrix", m.step)
+			}
+			flat := flatText(m)
+			if tc.wantSkills && !strings.Contains(flat, "(no shared skills found)") {
+				t.Errorf("matrix view missing its placeholder:\n%s", viewText(m))
+			}
+			if tc.wantSkills && (!strings.Contains(flat, "Add <skill-name>/SKILL.md") || !strings.Contains(flat, "then rerun")) {
+				t.Errorf("matrix view missing the skills hint:\n%s", viewText(m))
+			}
+			if tc.wantHarness && (!strings.Contains(flat, "No supported harnesses were detected.") || !strings.Contains(flat, "Use --all")) {
+				t.Errorf("matrix view missing the harness hint:\n%s", viewText(m))
+			}
+
+			for _, key := range []tea.KeyPressMsg{keyUp(), keyDown(), keyLeft(), keyRight(), keySpace(), keyRune('a'), keyRune('n')} {
+				if _, cmd := m.Update(key); cmd != nil {
+					t.Fatalf("%v quit an empty matrix", key)
+				}
+			}
+			if _, cmd := m.Update(keyEsc()); cmd != nil {
+				t.Fatal("esc should return to the mode menu, not quit")
+			}
+			if m.step != stepMode {
+				t.Fatalf("step = %v, want mode", m.step)
+			}
+
+			// Enter on the empty matrix reports no changes rather than
+			// panicking or starting a zero-length plan.
+			fresh := newWizard(WizardFlow{Ctx: ctx, Launch: true, Skills: tc.matrix})
+			fresh.Update(keyRune('2'))
+			_, cmd := fresh.Update(keyEnter())
+			assertQuits(t, cmd)
+			if result := fresh.result(); !result.NoChanges || result.Cancelled {
+				t.Fatalf("result = %+v, want no changes", result)
+			}
+		})
+	}
+}
+
+func TestLaunchHelpSaysBack(t *testing.T) {
+	ctx := testContext(t)
+	matrix, _ := testMatrix(t)
+
+	cases := []struct {
+		name  string
+		model *wizard
+		keys  []tea.KeyPressMsg
+	}{
+		{name: "select", model: newLaunchSelectWizard(t, ctx, nil), keys: []tea.KeyPressMsg{keyRune('1')}},
+		{name: "matrix", model: newWizard(WizardFlow{Ctx: ctx, Launch: true, Skills: matrix, SkillsReview: skillsReview(nil)}), keys: []tea.KeyPressMsg{keyRune('2')}},
+		{name: "setup menu", model: newWizard(WizardFlow{Ctx: ctx, Launch: true, Setup: true}), keys: []tea.KeyPressMsg{keyRune('1')}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, key := range tc.keys {
+				tc.model.Update(key)
+			}
+			view := viewText(tc.model)
+			if !strings.Contains(view, "esc back") || !strings.Contains(view, "ctrl+c cancel") {
+				t.Errorf("launch %s help = %q, want esc back and ctrl+c cancel", tc.name, view)
+			}
+		})
+	}
+
+	t.Run("standalone select", func(t *testing.T) {
+		m := newSelectWizard(t, ctx)
+		if view := viewText(m); !strings.Contains(view, "esc cancel") || strings.Contains(view, "esc back") {
+			t.Errorf("standalone select help = %q, want esc cancel", view)
+		}
+	})
+	t.Run("standalone matrix", func(t *testing.T) {
+		m := newMatrixWizard(t, matrix, ctx)
+		if view := viewText(m); !strings.Contains(view, "esc cancel") || strings.Contains(view, "esc back") {
+			t.Errorf("standalone matrix help = %q, want esc cancel", view)
+		}
+	})
+	t.Run("standalone setup menu", func(t *testing.T) {
+		m := newWizard(WizardFlow{Ctx: ctx, Setup: true})
+		if view := viewText(m); !strings.Contains(view, "esc cancel") || strings.Contains(view, "esc back") {
+			t.Errorf("standalone setup help = %q, want esc cancel", view)
 		}
 	})
 }
