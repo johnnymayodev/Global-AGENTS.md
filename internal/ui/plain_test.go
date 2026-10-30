@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -158,4 +159,61 @@ func TestCopySourceFile(t *testing.T) {
 			t.Error("source file should not have been created")
 		}
 	})
+
+	t.Run("rejects a directory", func(t *testing.T) {
+		dir := t.TempDir()
+		selected := filepath.Join(dir, "selected")
+		if err := os.Mkdir(selected, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		source := filepath.Join(dir, "AGENTS.md")
+		err := CopySourceFile(source, selected)
+		if err == nil {
+			t.Fatal("CopySourceFile unexpectedly succeeded")
+		}
+		if want := "not a regular file: " + selected; err.Error() != want {
+			t.Fatalf("CopySourceFile error = %q, want %q", err, want)
+		}
+		if _, err := os.Lstat(source); err == nil {
+			t.Error("source file should not have been created")
+		}
+	})
+}
+
+func TestCopyToSourceFileReadFailureLeavesNoCanonicalFile(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "AGENTS.md")
+	readErr := errors.New("read failed")
+	err := copyToSourceFile(source, &failingReader{err: readErr}, 0o644)
+	if err == nil {
+		t.Fatal("copyToSourceFile unexpectedly succeeded")
+	}
+	if !errors.Is(err, readErr) {
+		t.Fatalf("copyToSourceFile error = %v, want it to wrap %v", err, readErr)
+	}
+	if _, err := os.Lstat(source); err == nil {
+		t.Error("canonical file should not exist after a failed copy")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("temporary files left behind: %v", entries)
+	}
+}
+
+type failingReader struct {
+	err error
+}
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if r.err == nil {
+		r.err = errors.New("read failed")
+	}
+	n := copy(p, "partial")
+	return n, r.err
 }
