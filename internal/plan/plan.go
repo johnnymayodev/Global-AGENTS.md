@@ -299,7 +299,7 @@ func LinkNotes(targets []harness.Harness, ctx harness.Context) (string, error) {
 		override := filepath.Join(ctx.CodexHome, "AGENTS.override.md")
 		info, err := os.Stat(override)
 		if err == nil {
-			if info.Size() > 0 {
+			if info.Mode().IsRegular() && info.Size() > 0 {
 				notes = append(notes, fmt.Sprintf("note: Codex prefers its non-empty %s over AGENTS.md", override))
 			}
 		} else if !harness.MissingPath(err) {

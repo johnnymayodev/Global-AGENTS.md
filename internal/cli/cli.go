@@ -391,11 +391,16 @@ func linkTargets(targets []harness.Harness, ctx harness.Context, p ui.Prompter, 
 	if err != nil {
 		return err
 	}
+	notes, err := plan.LinkNotes(targets, ctx)
+	if err != nil {
+		return err
+	}
 	planText := plan.RenderLinkPlan(linkPlan, ctx)
 	if len(linkPlan.ToCreate) == 0 {
 		fmt.Fprintln(p.Out, planText)
 		fmt.Fprintln(p.Out, linkNoChangesLine(created, p.Interactive))
-		return printLinkNotes(targets, ctx, p.Err)
+		printLinkNotes(notes, p.Err)
+		return nil
 	}
 
 	confirmed, err := p.Confirm(
@@ -414,7 +419,8 @@ func linkTargets(targets []harness.Harness, ctx harness.Context, p ui.Prompter, 
 	if err := plan.CreateLinks(linkPlan.ToCreate, ctx, p.Out, p.Err); err != nil {
 		return err
 	}
-	return printLinkNotes(targets, ctx, p.Err)
+	printLinkNotes(notes, p.Err)
+	return nil
 }
 
 // unlinkFlow removes managed links; removal needs interactive confirmation.
@@ -469,6 +475,17 @@ func reconcileReview(visible []harness.Harness, ctx harness.Context, p ui.Prompt
 		}
 		summary := strings.Join(changes, " and ")
 
+		var chosen []harness.Harness
+		for _, h := range visible {
+			if selected[h.ID] {
+				chosen = append(chosen, h)
+			}
+		}
+		notes, err := plan.LinkNotes(chosen, ctx)
+		if err != nil {
+			return ui.Review{}, false, err
+		}
+
 		return ui.Review{
 			Text:    plan.RenderReconcilePlan(reconcilePlan, ctx),
 			Summary: fmt.Sprintf("Confirmation received; applying plan (%s).", summary),
@@ -476,13 +493,8 @@ func reconcileReview(visible []harness.Harness, ctx harness.Context, p ui.Prompt
 				if err := plan.ApplyReconcile(reconcilePlan, ctx, p.Out, p.Err); err != nil {
 					return err
 				}
-				var chosen []harness.Harness
-				for _, h := range visible {
-					if selected[h.ID] {
-						chosen = append(chosen, h)
-					}
-				}
-				return printLinkNotes(chosen, ctx, p.Err)
+				printLinkNotes(notes, p.Err)
+				return nil
 			},
 		}, true, nil
 	}
@@ -846,13 +858,8 @@ func managedSelection(harnesses []harness.Harness, ctx harness.Context) (map[str
 	return selected, nil
 }
 
-func printLinkNotes(targets []harness.Harness, ctx harness.Context, stderr io.Writer) error {
-	notes, err := plan.LinkNotes(targets, ctx)
-	if err != nil {
-		return err
-	}
+func printLinkNotes(notes string, stderr io.Writer) {
 	if notes != "" {
 		fmt.Fprintln(stderr, notes)
 	}
-	return nil
 }

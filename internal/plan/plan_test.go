@@ -493,6 +493,36 @@ func TestLinkNotes(t *testing.T) {
 		}
 	})
 
+	t.Run("codex override directory adds no note", func(t *testing.T) {
+		ctx := testContext(t)
+		if err := os.MkdirAll(filepath.Join(ctx.CodexHome, "AGENTS.override.md"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		notes, err := LinkNotes([]harness.Harness{testHarness("codex", "t")}, ctx)
+		if err != nil || notes != "" {
+			t.Fatalf("LinkNotes = %q, %v; want empty", notes, err)
+		}
+	})
+
+	t.Run("unreadable codex home returns an error", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root bypasses directory permissions")
+		}
+		ctx := testContext(t)
+		if err := os.MkdirAll(ctx.CodexHome, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(ctx.CodexHome, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(ctx.CodexHome, 0o755) })
+
+		notes, err := LinkNotes([]harness.Harness{testHarness("codex", "t")}, ctx)
+		if err == nil {
+			t.Fatalf("LinkNotes = %q, nil; want an error", notes)
+		}
+	})
+
 	t.Run("hermes note with codex note joined", func(t *testing.T) {
 		ctx := testContext(t)
 		writeFile(t, filepath.Join(ctx.CodexHome, "AGENTS.override.md"))
