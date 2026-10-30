@@ -55,6 +55,13 @@ binary, it is not an independent signature. A local writer who can replace both
 cache files can replace the binary, so the private cache directory and its
 ownership checks are the trust boundary.
 
+Release assets also carry GitHub artifact attestations, which are the stronger,
+independently verifiable signal: they tie each binary and checksum file to the
+release workflow, the commit it ran from, and this repository. The checksums
+remain useful for offline or simple verification, but they are not a signature
+and do not prove where an asset came from. See [Verify a
+release](#verify-a-release).
+
 ### Install or build from source
 
 Go 1.27.2 or newer (the `go` directive in `go.mod`) is required to install or
@@ -333,9 +340,24 @@ available. CI builds all four release targets with `sh build.sh <target>`.
 ## Releases
 
 The release workflow cross-compiles the four supported targets on one Linux
-runner, creates per-platform SHA-256 checksum files, and attaches both files to
-the version tag's GitHub release. `v0.x` tags are published as prereleases.
+runner, creates per-platform SHA-256 checksum files, attests every binary and
+checksum file with GitHub artifact attestations, and attaches both files to the
+version tag's GitHub release. `v0.x` tags are published as prereleases.
 
 Before a release, update the pinned `version=` in `run.sh` and push the matching
 `vX.Y.Z` tag. The workflow rejects a tag that does not match `run.sh`, and the
 bootstrap does not work for a version until its release assets exist.
+
+### Verify a release
+
+Download a release asset, then verify its attestation with the GitHub CLI:
+
+```sh
+gh attestation verify agent-links-<target> --repo johnnymayodev/Global-AGENTS.md
+```
+
+The same command works for `checksums-<target>.txt`. A successful check proves
+the file was built by this repository's release workflow from the tagged commit;
+a modified or substituted asset fails verification. Verifying the checksum file
+alone does not authenticate the binaries it lists, so verify each asset you rely
+on.
