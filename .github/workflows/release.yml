@@ -149,15 +149,74 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
-      - name: Create release
+      - name: Verify downloaded artifacts
+        working-directory: artifacts
+        run: |
+          for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            checksums="checksums-$target.txt"
+            if [ ! -f "$checksums" ]; then
+              printf 'error: missing checksum file %s\n' "$checksums" >&2
+              exit 1
+            fi
+            if ! sha256sum -c "$checksums"; then
+              printf 'error: checksum verification failed for %s\n' "$target" >&2
+              exit 1
+            fi
+          done
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          tag_version="${RELEASE_TAG#v}"
-          major="${tag_version%%.*}"
-          set -- --title "$RELEASE_TAG" --generate-notes
-          if [ "$major" -eq 0 ]; then
-            set -- "$@" --prerelease
+          # A pushed tag checks out its own commit; `gh release view` reports
+          # the state of any release that already exists for this tag.
+          release_state="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' 2>/dev/null || true)"
+          if [ "$release_state" = "false" ]; then
+            printf 'release %s is already published; nothing to do\n' "$RELEASE_TAG"
+            exit 0
           fi
-          gh release create "$RELEASE_TAG" "$@" artifacts/*
+          if [ "$release_state" = "true" ]; then
+            printf 'resuming draft release %s\n' "$RELEASE_TAG"
+          else
+            tag_version="${RELEASE_TAG#v}"
+            major="${tag_version%%.*}"
+            set -- --draft --title "$RELEASE_TAG" --generate-notes
+            if [ "$major" -eq 0 ]; then
+              set -- "$@" --prerelease
+            fi
+            gh release create "$RELEASE_TAG" "$@"
+          fi
+          set --
+          for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            set -- "$@" "artifacts/agent-links-$target" "artifacts/checksums-$target.txt"
+          done
+          gh release upload "$RELEASE_TAG" "$@" --clobber
+          expected_assets="$(
+            for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+              printf '%s\n' "agent-links-$target" "checksums-$target.txt"
+            done | sort
+          )"
+          remote_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | sort)"
+          missing=''
+          for asset in $expected_assets; do
+            if ! printf '%s\n' "$remote_assets" | grep -Fxq "$asset"; then
+              missing="$missing $asset"
+            fi
+          done
+          unexpected=''
+          for asset in $remote_assets; do
+            if ! printf '%s\n' "$expected_assets" | grep -Fxq "$asset"; then
+              unexpected="$unexpected $asset"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            printf 'error: release %s is missing assets:%s\n' "$RELEASE_TAG" "$missing" >&2
+          fi
+          if [ -n "$unexpected" ]; then
+            printf 'error: release %s has unexpected assets:%s\n' "$RELEASE_TAG" "$unexpected" >&2
+          fi
+          if [ -n "$missing$unexpected" ]; then
+            exit 1
+          fi
+          gh release edit "$RELEASE_TAG" --draft=false
+          printf 'published release %s\n' "$RELEASE_TAG"
