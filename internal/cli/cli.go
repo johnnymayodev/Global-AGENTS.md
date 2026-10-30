@@ -27,7 +27,8 @@ const usage = `usage:
   agent-links skills [--all]           manage shared skills for detected (or all) harnesses
   agent-links skills --list [--all]    print the shared skills matrix
   agent-links skills link <skill>      preview and confirm linking one skill
-  agent-links skills unlink <skill>    preview and confirm unlinking one skill`
+  agent-links skills unlink <skill>    preview and confirm unlinking one skill
+  agent-links --version                print the version`
 
 // Options injects the process environment and streams. Run fills them from
 // the real process; tests inject their own.
@@ -86,6 +87,11 @@ func Run(args []string) int {
 func RunWith(args []string, opts Options) int {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		fmt.Fprintln(opts.Stdout, usage)
+		return 0
+	}
+	// Version reporting needs neither HOME nor a working directory.
+	if len(args) == 1 && (args[0] == "--version" || args[0] == "-v") {
+		printVersion(opts.Stdout)
 		return 0
 	}
 

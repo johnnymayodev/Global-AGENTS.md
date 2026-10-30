@@ -24,8 +24,8 @@ curl -fsSL https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/main
 ```
 
 The runner downloads `agent-links-<target>` and its matching
-`checksums-<target>.txt` from the version pinned in `run.sh` (currently
-`v0.5.2`), verifies the executable's SHA-256 checksum, and caches both under
+`checksums-<target>.txt` from the version pinned in `run.sh`, verifies the
+executable's SHA-256 checksum, and caches both under
 `${XDG_CACHE_HOME:-$HOME/.cache}/agent-links/v<version>/<target>/`. The first
 run downloads both files; later runs re-verify the cached executable's SHA-256
 and need no network. It forwards your arguments, working directory,
@@ -116,6 +116,7 @@ agent-links skills [--all]           manage shared skills for detected (or all) 
 agent-links skills --list [--all]    print the shared skills matrix
 agent-links skills link <skill>      preview and confirm linking one skill
 agent-links skills unlink <skill>    preview and confirm unlinking one skill
+agent-links --version                print the version
 ```
 
 - `agent-links` and `agent-links --all` run the wizard.
@@ -134,6 +135,10 @@ agent-links skills unlink <skill>    preview and confirm unlinking one skill
 - `skills unlink <skill>` removes that skill's managed links. The source skill
   does not have to exist. Absolute names, path separators, `.`, and `..` are
   rejected.
+- `--version` (or `-v`) prints `agent-links v<version>` without reading `HOME`.
+  Release binaries report the version pinned in `run.sh`, a `go install
+  ...@latest` build reports its module version, and any other local build
+  reports `dev`.
 
 Instructions and skills are independent: skills mode does not require or create
 `AGENTS.md`, and each mode's links are planned separately. `HOME` must be set to

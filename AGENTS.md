@@ -185,8 +185,11 @@ Release targets are `darwin-arm64`, `darwin-x64`, `linux-arm64`, and
 gitignored. The script sets `CGO_ENABLED=0` (so Linux binaries are fully
 static and run on glibc and musl), `-trimpath`, and `-ldflags "-s -w"`.
 
-The binary does not embed or report a version. The release version is pinned by
-`run.sh`'s `version=` line and the matching release tag/assets.
+The binary reports its version with `--version`/`-v`: `build.sh` stamps the
+value from `run.sh`'s `version=` line, an unstamped `go install` build falls back
+to the module version, and a local checkout build reports `dev`. The release
+version is pinned by `run.sh`'s `version=` line and the matching release
+tag/assets.
 
 `run.sh` is the release-pinned one-shot bootstrap. It downloads
 `agent-links-<target>` and `checksums-<target>.txt` from the GitHub release for

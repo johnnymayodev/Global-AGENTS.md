@@ -8,3 +8,4 @@ usage:
   agent-links skills --list [--all]    print the shared skills matrix
   agent-links skills link <skill>      preview and confirm linking one skill
   agent-links skills unlink <skill>    preview and confirm unlinking one skill
+  agent-links --version                print the version

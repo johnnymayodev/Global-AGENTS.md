@@ -52,8 +52,16 @@ esac
 mkdir -p "$(dirname "$outfile")"
 cd "$script_dir"
 
+# run.sh's version= line is the release version source. Stamping it here lets
+# release binaries report which version they came from.
+version=$(sed -n 's/^version=\([^[:space:]]*\)$/\1/p' "$script_dir/run.sh")
+if [ -z "$version" ]; then
+  printf 'error: could not read version= from run.sh\n' >&2
+  exit 1
+fi
+
 CGO_ENABLED=0 GOOS="$os" GOARCH="$goarch" exec go build \
   -trimpath \
-  -ldflags "-s -w" \
+  -ldflags "-s -w -X github.com/johnnymayodev/Global-AGENTS.md/internal/cli.Version=$version" \
   -o "$outfile" \
   ./cmd/agent-links
