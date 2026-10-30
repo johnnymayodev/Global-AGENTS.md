@@ -134,6 +134,44 @@ jobs:
           for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
             hash "agent-links-$target" > "checksums-$target.txt"
           done
+      - name: Verify release assets
+        working-directory: dist
+        run: |
+          # Token matching keeps this independent of the `file` implementation
+          # (Apple and GNU format Mach-O headers differently).
+          require_tokens() {
+            asset="$1"
+            shift
+            description="$(file -b "$asset")"
+            for token in "$@"; do
+              if ! printf '%s\n' "$description" | grep -Fq "$token"; then
+                printf 'error: %s: expected "%s" in file output, got: %s\n' \
+                  "$asset" "$token" "$description" >&2
+                exit 1
+              fi
+            done
+            printf 'verified %s: %s\n' "$asset" "$description"
+          }
+          require_tokens agent-links-darwin-arm64 'Mach-O' 'arm64'
+          require_tokens agent-links-darwin-x64 'Mach-O' 'x86_64'
+          require_tokens agent-links-linux-arm64 'ELF' 'aarch64' 'statically linked'
+          require_tokens agent-links-linux-x64 'ELF' 'x86-64' 'statically linked'
+          if command -v sha256sum >/dev/null 2>&1; then
+            verify() { sha256sum --strict -c "$1"; }
+          else
+            verify() { shasum -a 256 --strict -c "$1"; }
+          fi
+          for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            checksums="checksums-$target.txt"
+            if [ ! -f "$checksums" ]; then
+              printf 'error: missing checksum file %s\n' "$checksums" >&2
+              exit 1
+            fi
+            if ! verify "$checksums"; then
+              printf 'error: checksum verification failed for %s\n' "$target" >&2
+              exit 1
+            fi
+          done
       - name: Attest release assets
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:

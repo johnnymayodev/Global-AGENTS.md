@@ -146,8 +146,8 @@ go build ./...
 ```
 
 CI runs those steps on `ubuntu-latest` and `macos-15`. A separate job
-cross-builds all four release targets and verifies the Linux binaries report
-`statically linked`.
+cross-builds all four release targets, checks each binary's architecture with
+`file`, and verifies the generated checksum files.
 
 Test layers:
 
@@ -218,11 +218,15 @@ Release procedure:
    contains all four `agent-links-<target>` binaries and their
    `checksums-<target>.txt` files.
 
-The workflow enforces that the pushed tag equals `v` + `run.sh`'s `version=`;
-a mismatch fails before building. It cross-compiles all four targets on one
-Linux runner, writes per-target SHA-256 checksum files, and publishes with
-`gh release create --generate-notes`. Tags starting with `v0.` are published
-as prereleases automatically; `v1.0.0` and later are normal releases.
+The `validate` job runs the CI checks and enforces that the pushed tag is a
+semantic version matching `v` + `run.sh`'s `version=`, strictly newer than the
+latest release, and on `main`; any mismatch fails before building. The `build`
+job cross-compiles all four targets on one Linux runner, verifies each binary's
+architecture and every per-target SHA-256 checksum file, and creates
+build-provenance attestations. The `publish` job re-verifies the downloaded
+artifacts, uploads them to a draft release created with `--generate-notes`,
+checks the remote asset set, and then publishes it. Tags starting with `v0.` are
+published as prereleases automatically; `v1.0.0` and later are normal releases.
 
 The bootstrap does not work for a new version until that version's release
 assets exist, so do not bump `run.sh` on `main` and leave the tag unpublished.
