@@ -23,6 +23,17 @@ type Skill struct {
 	SourceDir string
 }
 
+// CellKey is the stable identity of one skill/harness pair. Callers build and
+// look up selection maps with this key, so it lives in one package that both
+// the matrix UI and the planner import.
+//
+// The NUL delimiter is safe because a filesystem path component cannot contain
+// NUL, so no discovered skill name can collide with the harness ID that
+// follows it.
+func CellKey(skillName, harnessID string) string {
+	return skillName + "\x00" + harnessID
+}
+
 // Discover returns the valid immediate children of root: directories, or
 // symlinks to directories, that contain a regular SKILL.md. A missing or
 // empty root is an empty result rather than an error. A root that is not a

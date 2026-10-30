@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/johnnymayodev/Global-AGENTS.md/internal/harness"
+	"github.com/johnnymayodev/Global-AGENTS.md/internal/skill"
 )
 
 func makeSkillDir(t *testing.T, root, name string) string {
@@ -55,8 +56,8 @@ func TestSkillReconcileIndependentCells(t *testing.T) {
 		skillCell(t, "beta", two, root),
 	}
 	selected := map[string]bool{
-		CellKey("alpha", "one"): true,
-		CellKey("beta", "two"):  true,
+		skill.CellKey("alpha", "one"): true,
+		skill.CellKey("beta", "two"):  true,
 	}
 
 	plan, err := SkillReconcile(cells, selected)
@@ -74,6 +75,32 @@ func TestSkillReconcileIndependentCells(t *testing.T) {
 	}
 	if len(plan.AlreadyAbsent) != 1 || plan.AlreadyAbsent[0].Skill != "alpha" || plan.AlreadyAbsent[0].HarnessID != "two" {
 		t.Errorf("AlreadyAbsent = %v, want alpha/two only", plan.AlreadyAbsent)
+	}
+}
+
+func TestSkillReconcileRecognizesSharedCellKey(t *testing.T) {
+	root := t.TempDir()
+	makeSkillDir(t, root, "alpha")
+	beta := makeSkillDir(t, root, "beta")
+	one := skillTestHarness("one", t.TempDir())
+	symlink(t, beta, filepath.Join(one.SkillsDir, "beta"))
+
+	cells := []SkillCell{
+		skillCell(t, "alpha", one, root),
+		skillCell(t, "beta", one, root),
+	}
+	// The matrix selection map is keyed by the shared function.
+	selected := map[string]bool{skill.CellKey("alpha", "one"): true}
+
+	plan, err := SkillReconcile(cells, selected)
+	if err != nil {
+		t.Fatalf("SkillReconcile: %v", err)
+	}
+	if len(plan.ToCreate) != 1 || plan.ToCreate[0].Key() != skill.CellKey("alpha", "one") {
+		t.Errorf("ToCreate = %v, want the selected alpha/one cell", plan.ToCreate)
+	}
+	if len(plan.ToRemove) != 1 || plan.ToRemove[0].Key() != skill.CellKey("beta", "one") {
+		t.Errorf("ToRemove = %v, want the unselected beta/one cell", plan.ToRemove)
 	}
 }
 
@@ -185,7 +212,7 @@ func TestSkillReconcileKeepsTargetClaimedBySelection(t *testing.T) {
 		skillCell(t, "alpha", one, root),
 		skillCell(t, "alpha", two, root),
 	}
-	plan, err := SkillReconcile(cells, map[string]bool{CellKey("alpha", "one"): true})
+	plan, err := SkillReconcile(cells, map[string]bool{skill.CellKey("alpha", "one"): true})
 	if err != nil {
 		t.Fatalf("SkillReconcile: %v", err)
 	}
@@ -205,7 +232,7 @@ func TestSkillReconcileRejectsAmbiguousSources(t *testing.T) {
 		{Skill: "one", HarnessID: "shared", Source: one, Target: target},
 		{Skill: "two", HarnessID: "shared", Source: two, Target: target},
 	}
-	_, err := SkillReconcile(cells, map[string]bool{CellKey("one", "shared"): true, CellKey("two", "shared"): true})
+	_, err := SkillReconcile(cells, map[string]bool{skill.CellKey("one", "shared"): true, skill.CellKey("two", "shared"): true})
 	want := "refusing to point one destination at different skills: " + target + "; no changes made"
 	if err == nil || err.Error() != want {
 		t.Fatalf("SkillReconcile error = %v, want %q", err, want)
