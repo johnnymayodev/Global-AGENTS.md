@@ -44,9 +44,37 @@ jobs:
           for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
             sh build.sh "$target"
           done
-      - name: Check Linux assets are statically linked
+      - name: Generate checksums
+        working-directory: dist
         run: |
-          for asset in dist/agent-links-linux-arm64 dist/agent-links-linux-x64; do
-            file "$asset"
-            file "$asset" | grep -q 'statically linked'
+          for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            sha256sum "agent-links-$target" > "checksums-$target.txt"
+          done
+      - name: Verify release asset architectures
+        working-directory: dist
+        run: |
+          # Token matching keeps this independent of the `file` implementation
+          # (Apple and GNU format Mach-O headers differently).
+          require_tokens() {
+            asset="$1"
+            shift
+            description="$(file -b "$asset")"
+            for token in "$@"; do
+              if ! printf '%s\n' "$description" | grep -Fq "$token"; then
+                printf 'error: %s: expected "%s" in file output, got: %s\n' \
+                  "$asset" "$token" "$description" >&2
+                exit 1
+              fi
+            done
+            printf 'verified %s: %s\n' "$asset" "$description"
+          }
+          require_tokens agent-links-darwin-arm64 'Mach-O' 'arm64'
+          require_tokens agent-links-darwin-x64 'Mach-O' 'x86_64'
+          require_tokens agent-links-linux-arm64 'ELF' 'aarch64' 'statically linked'
+          require_tokens agent-links-linux-x64 'ELF' 'x86-64' 'statically linked'
+      - name: Verify checksum files
+        working-directory: dist
+        run: |
+          for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            sha256sum --strict -c "checksums-$target.txt"
           done
