@@ -5,6 +5,8 @@ package ui
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -282,14 +284,7 @@ func CheckSelectedFile(path string) error {
 // contents, creating missing parent directories and refusing to overwrite an
 // existing file.
 func CreateBlankSource(sourceFile string) error {
-	if err := os.MkdirAll(filepath.Dir(sourceFile), 0o777); err != nil {
-		return err
-	}
-	file, err := os.OpenFile(sourceFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o666)
-	if err != nil {
-		return err
-	}
-	return file.Close()
+	return copyToSourceFile(sourceFile, strings.NewReader(""), 0o666)
 }
 
 // CopySourceFile copies selectedPath to the canonical instructions file,
@@ -298,25 +293,65 @@ func CreateBlankSource(sourceFile string) error {
 func CopySourceFile(sourceFile, selectedPath string) error {
 	info, err := os.Stat(selectedPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("stat selected file %s: %w", selectedPath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("not a regular file: %s", selectedPath)
 	}
 	source, err := os.Open(selectedPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("open selected file %s: %w", selectedPath, err)
 	}
 	defer source.Close()
+	return copyToSourceFile(sourceFile, source, info.Mode().Perm())
+}
 
+// copyToSourceFile stages source in a temporary file beside sourceFile and
+// publishes it with a hard link, which fails atomically instead of replacing
+// an existing path. The temporary name is removed on every outcome.
+func copyToSourceFile(sourceFile string, source io.Reader, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(sourceFile), 0o777); err != nil {
-		return err
+		return fmt.Errorf("create directory for %s: %w", sourceFile, err)
 	}
-
-	dest, err := os.OpenFile(sourceFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+	temp, err := createSourceTemp(sourceFile, perm)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(dest, source); err != nil {
-		dest.Close()
-		return err
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+
+	if _, err := io.Copy(temp, source); err != nil {
+		temp.Close()
+		return fmt.Errorf("copy to temporary file for %s: %w", sourceFile, err)
 	}
-	return dest.Close()
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("close temporary file for %s: %w", sourceFile, err)
+	}
+	if err := os.Link(tempPath, sourceFile); err != nil {
+		return fmt.Errorf("publish %s: %w", sourceFile, err)
+	}
+	return nil
+}
+
+// createSourceTemp creates a temporary file in sourceFile's directory. The
+// process umask applies to perm, matching how the canonical file was created
+// before it was staged.
+func createSourceTemp(sourceFile string, perm os.FileMode) (*os.File, error) {
+	dir := filepath.Dir(sourceFile)
+	for attempt := 0; attempt < 10; attempt++ {
+		var suffix [8]byte
+		if _, err := rand.Read(suffix[:]); err != nil {
+			return nil, fmt.Errorf("generate temporary file name in %s: %w", dir, err)
+		}
+		path := filepath.Join(dir, "."+filepath.Base(sourceFile)+"-"+hex.EncodeToString(suffix[:]))
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("create temporary file for %s: %w", sourceFile, err)
+		}
+		return file, nil
+	}
+	return nil, fmt.Errorf("create temporary file for %s: too many name collisions", sourceFile)
 }
