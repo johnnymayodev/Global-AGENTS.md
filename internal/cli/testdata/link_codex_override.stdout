@@ -1,21 +1,30 @@
 Link plan:
   Create these symlinks (creating missing parent directories if needed):
-    ~/.config/opencode/AGENTS.md -> ~/.config/agents/AGENTS.md
+    ~/.claude/CLAUDE.md -> ~/.config/agents/AGENTS.md
     ~/.codex/AGENTS.md -> ~/.config/agents/AGENTS.md
+    ~/.config/opencode/AGENTS.md -> ~/.config/agents/AGENTS.md
     ~/.pi/agent/AGENTS.md -> ~/.config/agents/AGENTS.md
     ~/.omp/agent/AGENTS.md -> ~/.config/agents/AGENTS.md
+    ~/.grok/AGENTS.md -> ~/.config/agents/AGENTS.md
     ~/.hermes/AGENTS.md -> ~/.config/agents/AGENTS.md
-    ~/.claude/CLAUDE.md -> ~/.config/agents/AGENTS.md
+    ~/.config/muse/AGENTS.md -> ~/.config/agents/AGENTS.md
+    ~/.gemini/AGENTS.md -> ~/.config/agents/AGENTS.md
   Existing files and unrelated symlinks will not be overwritten.
-Type "yes" to create the 6 symlink(s) listed above: Confirmation received; creating 6 symlink(s).
+Type "yes" to create the 9 symlink(s) listed above: Confirmation received; creating 9 symlink(s).
+created directory ~/.claude
+created symlink ~/.claude/CLAUDE.md
+created symlink ~/.codex/AGENTS.md
 created directory ~/.config/opencode
 created symlink ~/.config/opencode/AGENTS.md
-created symlink ~/.codex/AGENTS.md
 created directory ~/.pi
 created symlink ~/.pi/agent/AGENTS.md
 created directory ~/.omp
 created symlink ~/.omp/agent/AGENTS.md
+created directory ~/.grok
+created symlink ~/.grok/AGENTS.md
 created directory ~/.hermes
 created symlink ~/.hermes/AGENTS.md
-created directory ~/.claude
-created symlink ~/.claude/CLAUDE.md
+created directory ~/.config/muse
+created symlink ~/.config/muse/AGENTS.md
+created directory ~/.gemini
+created symlink ~/.gemini/AGENTS.md

@@ -3,10 +3,13 @@ Global instructions: {{HOME}}/.config/agents/AGENTS.md
 ┌──┬──────────────────┬───────────┬──────────────────────────────┐
 │  │ Harness          │ Installed │ Global instructions          │
 ├──┼──────────────────┼───────────┼──────────────────────────────┤
-│  │ [ ] OpenCode     │ No        │ ~/.config/opencode/AGENTS.md │
+│  │ [ ] Claude Code  │ No        │ ~/.claude/CLAUDE.md          │
 │  │ [ ] Codex        │ No        │ ~/.codex/AGENTS.md           │
+│  │ [ ] OpenCode     │ No        │ ~/.config/opencode/AGENTS.md │
 │  │ [ ] Pi           │ No        │ ~/.pi/agent/AGENTS.md        │
 │  │ [ ] OMP          │ No        │ ~/.omp/agent/AGENTS.md       │
+│  │ [ ] Grok         │ No        │ ~/.grok/AGENTS.md            │
 │  │ [ ] Hermes Agent │ No        │ ~/.hermes/AGENTS.md          │
-│  │ [ ] Claude Code  │ No        │ ~/.claude/CLAUDE.md          │
+│  │ [ ] Muse Code    │ No        │ ~/.config/muse/AGENTS.md     │
+│  │ [ ] Antigravity  │ No        │ ~/.gemini/AGENTS.md          │
 └──┴──────────────────┴───────────┴──────────────────────────────┘

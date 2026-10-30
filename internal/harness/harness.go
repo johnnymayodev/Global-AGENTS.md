@@ -80,6 +80,11 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 	sourceSkillsDir := filepath.Join(home, ".config", "agents", "skills")
 	codexHome := absoluteFrom(envOr("CODEX_HOME", filepath.Join(home, ".codex")), cwd)
 	hermesHome := absoluteFrom(envOr("HERMES_HOME", filepath.Join(home, ".hermes")), cwd)
+	configHome := filepath.Join(home, ".config")
+	if xdg, ok := lookup("XDG_CONFIG_HOME"); ok && filepath.IsAbs(xdg) {
+		configHome = filepath.Clean(xdg)
+	}
+	museHome := filepath.Join(configHome, "muse")
 
 	ompConfigRoot := absoluteFrom(envOr("PI_CONFIG_DIR", ".omp"), home)
 
@@ -106,12 +111,12 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 
 	harnesses := []Harness{
 		{
-			ID:          "opencode",
-			Name:        "OpenCode",
-			Target:      filepath.Join(home, ".config", "opencode", "AGENTS.md"),
-			SkillsDir:   filepath.Join(home, ".config", "opencode", "skills"),
-			Executables: []string{"opencode"},
-			InstallDirs: []string{filepath.Join(home, ".config", "opencode")},
+			ID:          "claude",
+			Name:        "Claude Code",
+			Target:      filepath.Join(home, ".claude", "CLAUDE.md"),
+			SkillsDir:   filepath.Join(home, ".claude", "skills"),
+			Executables: []string{"claude"},
+			InstallDirs: []string{filepath.Join(home, ".claude")},
 		},
 		{
 			ID:          "codex",
@@ -120,6 +125,23 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 			SkillsDir:   filepath.Join(home, ".agents", "skills"),
 			Executables: []string{"codex"},
 			InstallDirs: []string{codexHome},
+		},
+		{
+			// Cursor keeps global user rules in its settings, not in a file,
+			// so it has no global instructions target.
+			ID:          "cursor",
+			Name:        "Cursor",
+			SkillsDir:   filepath.Join(home, ".cursor", "skills"),
+			Executables: []string{"cursor", "cursor-agent"},
+			InstallDirs: []string{filepath.Join(home, ".cursor")},
+		},
+		{
+			ID:          "opencode",
+			Name:        "OpenCode",
+			Target:      filepath.Join(home, ".config", "opencode", "AGENTS.md"),
+			SkillsDir:   filepath.Join(home, ".config", "opencode", "skills"),
+			Executables: []string{"opencode"},
+			InstallDirs: []string{filepath.Join(home, ".config", "opencode")},
 		},
 		{
 			ID:          "pi",
@@ -138,6 +160,14 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 			InstallDirs: []string{ompAgentDir, ompConfigRoot},
 		},
 		{
+			ID:          "grok",
+			Name:        "Grok",
+			Target:      filepath.Join(home, ".grok", "AGENTS.md"),
+			SkillsDir:   filepath.Join(home, ".grok", "skills"),
+			Executables: []string{"grok"},
+			InstallDirs: []string{filepath.Join(home, ".grok")},
+		},
+		{
 			ID:          "hermes",
 			Name:        "Hermes Agent",
 			Target:      filepath.Join(hermesHome, "AGENTS.md"),
@@ -146,12 +176,24 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 			InstallDirs: []string{hermesHome},
 		},
 		{
-			ID:          "claude",
-			Name:        "Claude Code",
-			Target:      filepath.Join(home, ".claude", "CLAUDE.md"),
-			SkillsDir:   filepath.Join(home, ".claude", "skills"),
-			Executables: []string{"claude"},
-			InstallDirs: []string{filepath.Join(home, ".claude")},
+			ID:          "muse",
+			Name:        "Muse Code",
+			Target:      filepath.Join(museHome, "AGENTS.md"),
+			SkillsDir:   filepath.Join(museHome, "skills"),
+			Executables: []string{"muse"},
+			InstallDirs: []string{museHome},
+		},
+		{
+			ID:          "antigravity",
+			Name:        "Antigravity",
+			Target:      filepath.Join(home, ".gemini", "AGENTS.md"),
+			SkillsDir:   filepath.Join(home, ".gemini", "config", "skills"),
+			Executables: []string{"agy", "antigravity"},
+			InstallDirs: []string{
+				filepath.Join(home, ".gemini", "antigravity"),
+				filepath.Join(home, ".gemini", "antigravity-cli"),
+				filepath.Join(home, ".gemini", "antigravity-ide"),
+			},
 		},
 	}
 
@@ -326,14 +368,33 @@ func DisplayPath(path, home string) string {
 	return path
 }
 
-// Visible returns the harnesses to show: all of them when showAll is set,
-// otherwise only the installed ones.
+// HasInstructions reports whether h has a global instructions target. Cursor
+// keeps user rules in its settings, so it is skills-only here.
+func (h Harness) HasInstructions() bool {
+	return h.Target != ""
+}
+
+// WithInstructions filters harnesses to those that support a global
+// instructions file.
+func WithInstructions(harnesses []Harness) []Harness {
+	var filtered []Harness
+	for _, h := range harnesses {
+		if h.HasInstructions() {
+			filtered = append(filtered, h)
+		}
+	}
+	return filtered
+}
+
+// Visible returns the harnesses with a global instructions target to show: all
+// of them when showAll is set, otherwise only the installed ones.
 func Visible(ctx Context, showAll bool) ([]Harness, error) {
+	candidates := WithInstructions(ctx.Harnesses)
 	if showAll {
-		return ctx.Harnesses, nil
+		return candidates, nil
 	}
 	var visible []Harness
-	for _, h := range ctx.Harnesses {
+	for _, h := range candidates {
 		installed, err := IsInstalled(h, ctx)
 		if err != nil {
 			return nil, err
@@ -354,6 +415,9 @@ func VisibleSkills(ctx Context, showAll bool) ([]Harness, error) {
 	}
 	var visible []Harness
 	for _, h := range ctx.Harnesses {
+		if h.SkillsDir == "" {
+			continue
+		}
 		installed, err := IsInstalled(h, ctx)
 		if err != nil {
 			return nil, err

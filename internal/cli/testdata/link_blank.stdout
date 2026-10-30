@@ -2,11 +2,14 @@ No shared instructions file found at {{HOME}}/.config/agents/AGENTS.md.
 Choose: [1] copy an existing instructions file  [2] create a blank AGENTS.md  [q] cancel: Created blank instructions file: {{HOME}}/.config/agents/AGENTS.md
 Link plan:
   Create these symlinks (creating missing parent directories if needed):
-    ~/.config/opencode/AGENTS.md -> ~/.config/agents/AGENTS.md
+    ~/.claude/CLAUDE.md -> ~/.config/agents/AGENTS.md
     ~/.codex/AGENTS.md -> ~/.config/agents/AGENTS.md
+    ~/.config/opencode/AGENTS.md -> ~/.config/agents/AGENTS.md
     ~/.pi/agent/AGENTS.md -> ~/.config/agents/AGENTS.md
     ~/.omp/agent/AGENTS.md -> ~/.config/agents/AGENTS.md
+    ~/.grok/AGENTS.md -> ~/.config/agents/AGENTS.md
     ~/.hermes/AGENTS.md -> ~/.config/agents/AGENTS.md
-    ~/.claude/CLAUDE.md -> ~/.config/agents/AGENTS.md
+    ~/.config/muse/AGENTS.md -> ~/.config/agents/AGENTS.md
+    ~/.gemini/AGENTS.md -> ~/.config/agents/AGENTS.md
   Existing files and unrelated symlinks will not be overwritten.
-Type "yes" to create the 6 symlink(s) listed above: Cancelled (no confirmation received). No changes made.
+Type "yes" to create the 9 symlink(s) listed above: Cancelled (no confirmation received). No changes made.

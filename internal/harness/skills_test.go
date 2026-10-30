@@ -16,12 +16,16 @@ func TestBuildContextSkillsPaths(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"opencode": "/home/user/.config/opencode/skills",
-		"codex":    "/home/user/.agents/skills",
-		"pi":       "/home/user/.pi/agent/skills",
-		"omp":      "/home/user/.omp/agent/skills",
-		"hermes":   "/home/user/.hermes/skills",
-		"claude":   "/home/user/.claude/skills",
+		"opencode":    "/home/user/.config/opencode/skills",
+		"codex":       "/home/user/.agents/skills",
+		"pi":          "/home/user/.pi/agent/skills",
+		"omp":         "/home/user/.omp/agent/skills",
+		"hermes":      "/home/user/.hermes/skills",
+		"claude":      "/home/user/.claude/skills",
+		"cursor":      "/home/user/.cursor/skills",
+		"muse":        "/home/user/.config/muse/skills",
+		"grok":        "/home/user/.grok/skills",
+		"antigravity": "/home/user/.gemini/config/skills",
 	}
 	for id, wantDir := range want {
 		if got := harnessByID(t, ctx, id).SkillsDir; got != wantDir {
@@ -110,6 +114,38 @@ func TestSkillsPathsFollowEnvironmentOverrides(t *testing.T) {
 		}
 		if got := harnessByID(t, ctx, "omp").SkillsDir; got != "/work/rel-agent/skills" {
 			t.Errorf("OMP agent SkillsDir = %q", got)
+		}
+	})
+}
+
+func TestMuseFollowsXDGConfigHome(t *testing.T) {
+	t.Run("absolute XDG_CONFIG_HOME", func(t *testing.T) {
+		ctx, err := BuildContext(lookupFrom(map[string]string{
+			"HOME":            "/home/user",
+			"XDG_CONFIG_HOME": "/custom/config",
+		}), "/work")
+		if err != nil {
+			t.Fatalf("BuildContext: %v", err)
+		}
+		muse := harnessByID(t, ctx, "muse")
+		if got, want := muse.Target, "/custom/config/muse/AGENTS.md"; got != want {
+			t.Errorf("muse target = %q, want %q", got, want)
+		}
+		if got, want := muse.SkillsDir, "/custom/config/muse/skills"; got != want {
+			t.Errorf("muse SkillsDir = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("relative XDG_CONFIG_HOME is ignored", func(t *testing.T) {
+		ctx, err := BuildContext(lookupFrom(map[string]string{
+			"HOME":            "/home/user",
+			"XDG_CONFIG_HOME": "relative/config",
+		}), "/work")
+		if err != nil {
+			t.Fatalf("BuildContext: %v", err)
+		}
+		if got, want := harnessByID(t, ctx, "muse").Target, "/home/user/.config/muse/AGENTS.md"; got != want {
+			t.Errorf("muse target = %q, want %q", got, want)
 		}
 	})
 }

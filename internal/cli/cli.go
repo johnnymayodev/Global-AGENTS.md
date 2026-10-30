@@ -373,7 +373,7 @@ func linkFlow(ctx harness.Context, p ui.Prompter) error {
 	if err != nil || !ok {
 		return err
 	}
-	return linkTargets(ctx.Harnesses, ctx, p, created)
+	return linkTargets(harness.WithInstructions(ctx.Harnesses), ctx, p, created)
 }
 
 // linkNoChangesLine is the no-op outcome for a link plan. Interactive runs
@@ -419,7 +419,7 @@ func linkTargets(targets []harness.Harness, ctx harness.Context, p ui.Prompter, 
 
 // unlinkFlow removes managed links; removal needs interactive confirmation.
 func unlinkFlow(ctx harness.Context, p ui.Prompter) error {
-	unlinkPlan, err := plan.Unlinks(ctx.Harnesses, ctx)
+	unlinkPlan, err := plan.Unlinks(harness.WithInstructions(ctx.Harnesses), ctx)
 	if err != nil {
 		return err
 	}
