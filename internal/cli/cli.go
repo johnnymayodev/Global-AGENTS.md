@@ -244,19 +244,17 @@ func launchFlowTUI(ctx harness.Context, p ui.Prompter, showAll bool) error {
 	return nil
 }
 
-// wizardOutcome is the wizard's closing line. A setup notice means this run
-// created the instructions file, so the only thing that could remain unchanged
-// is the links.
+// wizardOutcome is the wizard's closing line. When setup created the
+// instructions file, the only thing that could remain unchanged is the links.
 func wizardOutcome(result ui.WizardResult) string {
-	created := len(result.Notices) > 0
 	switch {
 	case result.Cancelled:
-		if created {
+		if result.Created {
 			return "Cancelled. No links were changed."
 		}
 		return "Cancelled. No changes made."
 	case result.NoChanges:
-		if created {
+		if result.Created {
 			return "No links were changed."
 		}
 		return "No changes made."

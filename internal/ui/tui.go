@@ -268,7 +268,8 @@ type WizardFlow struct {
 // WizardResult reports how the wizard ended. The caller prints the outcome
 // after the program has left the alternate screen.
 type WizardResult struct {
-	Notices    []string // e.g. "Created ..." lines from the setup step
+	Notices    []string // e.g. "Created ..." lines from the setup step; display only
+	Created    bool     // setup created the shared instructions file
 	Mode       Mode
 	ModeChosen bool
 	Cancelled  bool
@@ -344,6 +345,7 @@ type wizard struct {
 	reviewLinesValid bool
 
 	notices    []string
+	created    bool
 	mode       Mode
 	modeChosen bool
 	applied    bool
@@ -421,6 +423,7 @@ func (m *wizard) MatrixSelection() map[string]bool {
 func (m *wizard) result() WizardResult {
 	return WizardResult{
 		Notices:    m.notices,
+		Created:    m.created,
 		Mode:       m.mode,
 		ModeChosen: m.modeChosen,
 		Cancelled:  m.cancelled,
@@ -575,10 +578,12 @@ func (m *wizard) updateSetup(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	event, cmd, err := m.setup.handleKey(msg)
 	switch event {
 	case setupCreatedBlank:
+		m.created = true
 		m.notices = append(m.notices, fmt.Sprintf("Created blank instructions file: %s", m.setup.ctx.SourceFile))
 		m.flow.Setup = false
 		m.step = stepSelect
 	case setupCreatedFrom:
+		m.created = true
 		m.notices = append(m.notices, fmt.Sprintf("Created %s from %s", m.setup.ctx.SourceFile, m.setup.copied))
 		m.flow.Setup = false
 		m.step = stepSelect
