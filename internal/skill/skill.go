@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"unicode"
 )
 
 // Skill is one shared skill directory.
@@ -85,6 +86,10 @@ func Discover(root string) ([]Skill, error) {
 			continue
 		}
 
+		if err := ValidateName(name); err != nil {
+			return nil, fmt.Errorf("invalid skill directory name: %q", name)
+		}
+
 		skills = append(skills, Skill{Name: name, SourceDir: dir})
 	}
 
@@ -120,6 +125,11 @@ func ValidateName(name string) error {
 	}
 	if filepath.IsAbs(name) || filepath.Base(name) != name || strings.ContainsAny(name, `/\`) {
 		return fmt.Errorf("invalid skill name: %q", name)
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("invalid skill name: %q", name)
+		}
 	}
 	return nil
 }
