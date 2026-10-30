@@ -364,7 +364,7 @@ func TestRenderSkillsPlans(t *testing.T) {
 	cell := skillCell(t, "alpha", h, root)
 
 	linkText := RenderSkillLinkPlan(SkillsPlan{ToCreate: []SkillCell{cell}}, ctx)
-	for _, want := range []string{"Link plan:", "~/.agents/skills/alpha -> ~/.config/agents/skills/alpha"} {
+	for _, want := range []string{"Link plan:", "~/.agents/skills/alpha -> ~/.global-agents/skills/alpha"} {
 		if !strings.Contains(linkText, want) {
 			t.Errorf("link plan missing %q:\n%s", want, linkText)
 		}

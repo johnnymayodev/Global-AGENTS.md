@@ -1,15 +1,15 @@
 Link plan:
   Create these symlinks (creating missing parent directories if needed):
-    ~/.claude/skills/git-release -> ~/.config/agents/skills/git-release
-    ~/.agents/skills/git-release -> ~/.config/agents/skills/git-release
-    ~/.cursor/skills/git-release -> ~/.config/agents/skills/git-release
-    ~/.config/opencode/skills/git-release -> ~/.config/agents/skills/git-release
-    ~/.pi/agent/skills/git-release -> ~/.config/agents/skills/git-release
-    ~/.omp/agent/skills/git-release -> ~/.config/agents/skills/git-release
-    ~/.grok/skills/git-release -> ~/.config/agents/skills/git-release
-    ~/.hermes/skills/git-release -> ~/.config/agents/skills/git-release
-    ~/.config/muse/skills/git-release -> ~/.config/agents/skills/git-release
-    ~/.gemini/config/skills/git-release -> ~/.config/agents/skills/git-release
+    ~/.claude/skills/git-release -> ~/.global-agents/skills/git-release
+    ~/.agents/skills/git-release -> ~/.global-agents/skills/git-release
+    ~/.cursor/skills/git-release -> ~/.global-agents/skills/git-release
+    ~/.config/opencode/skills/git-release -> ~/.global-agents/skills/git-release
+    ~/.pi/agent/skills/git-release -> ~/.global-agents/skills/git-release
+    ~/.omp/agent/skills/git-release -> ~/.global-agents/skills/git-release
+    ~/.grok/skills/git-release -> ~/.global-agents/skills/git-release
+    ~/.hermes/skills/git-release -> ~/.global-agents/skills/git-release
+    ~/.config/muse/skills/git-release -> ~/.global-agents/skills/git-release
+    ~/.gemini/config/skills/git-release -> ~/.global-agents/skills/git-release
   Existing files and unrelated symlinks will not be overwritten.
 Type "yes" to create the 10 symlink(s) listed above: Confirmation received; creating 10 symlink(s).
 created directory ~/.claude
@@ -18,7 +18,7 @@ created directory ~/.agents
 created symlink ~/.agents/skills/git-release
 created directory ~/.cursor
 created symlink ~/.cursor/skills/git-release
-created directory ~/.config/opencode
+created directory ~/.config
 created symlink ~/.config/opencode/skills/git-release
 created directory ~/.pi
 created symlink ~/.pi/agent/skills/git-release

@@ -1,4 +1,4 @@
 What do you want to manage?
-Choose: [1] global instructions (AGENTS.md)  [2] global skills (SKILL.md)  [q] cancel: No shared skills found at ~/.config/agents/skills.
+Choose: [1] global instructions (AGENTS.md)  [2] global skills (SKILL.md)  [q] cancel: No shared skills found at ~/.global-agents/skills.
 Add <skill-name>/SKILL.md (plus any supporting files), then rerun agent-links.
 No changes made.

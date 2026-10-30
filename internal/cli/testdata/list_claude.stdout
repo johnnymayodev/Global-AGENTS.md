@@ -1,4 +1,4 @@
-Global instructions: {{HOME}}/.config/agents/AGENTS.md
+Global instructions: {{HOME}}/.global-agents/AGENTS.md
 
 ┌──┬─────────────────┬───────────┬─────────────────────┐
 │  │ Harness         │ Installed │ Global instructions │

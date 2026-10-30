@@ -4,8 +4,8 @@
 shared configuration directory into the global locations of supported AI coding
 harnesses:
 
-- `~/.config/agents/AGENTS.md` holds shared instructions.
-- `~/.config/agents/skills/<skill-name>/` holds portable Agent Skills.
+- `~/.global-agents/AGENTS.md` holds shared instructions.
+- `~/.global-agents/skills/<skill-name>/` holds portable Agent Skills.
 
 Each file or skill directory is linked individually. The tool never replaces a
 harness's whole configuration or skills directory, and never overwrites an
@@ -92,7 +92,7 @@ first asks whether to manage global instructions or shared skills, then shows
 the detected harnesses. `--all` includes every supported harness, whether or not
 it looks installed.
 
-On first run, if `~/.config/agents/AGENTS.md` does not exist, the instructions
+On first run, if `~/.global-agents/AGENTS.md` does not exist, the instructions
 flow offers to copy an existing instructions file or create a blank one. Skills
 mode does not require or create `AGENTS.md`, and the two modes are planned and
 linked independently.
@@ -209,7 +209,7 @@ results:
 ## Canonical layout
 
 ```text
-~/.config/agents/
+~/.global-agents/
 ├── AGENTS.md
 └── skills/
     ├── git-release/
