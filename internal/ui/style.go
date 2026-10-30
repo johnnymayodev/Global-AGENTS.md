@@ -2,6 +2,7 @@ package ui
 
 import (
 	"strings"
+	"unicode"
 
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/textinput"
@@ -141,15 +142,121 @@ func padRight(s string, width int) string {
 }
 
 // truncateCell shortens a table cell to width columns, keeping both ends so
-// the file name stays readable.
+// the file name stays readable. It cuts only between grapheme clusters, so a
+// combining mark, emoji modifier, or ZWJ sequence is never split, and the
+// result never exceeds width columns.
 func truncateCell(s string, width int) string {
-	runes := []rune(s)
-	if width <= 1 || len(runes) <= width {
+	if width <= 0 {
+		return ""
+	}
+	clusters := graphemeClusters(s)
+	total := 0
+	for _, cluster := range clusters {
+		total += cellWidth(cluster)
+	}
+	if total <= width {
 		return s
 	}
-	tail := (width - 1) / 2
-	head := width - 1 - tail
-	return string(runes[:head]) + "…" + string(runes[len(runes)-tail:])
+	if width == 1 {
+		return "…"
+	}
+
+	tailBudget := (width - 1) / 2
+	headBudget := width - 1 - tailBudget
+
+	headEnd := 0
+	used := 0
+	for headEnd < len(clusters) {
+		w := cellWidth(clusters[headEnd])
+		if used+w > headBudget {
+			break
+		}
+		used += w
+		headEnd++
+	}
+	tailStart := len(clusters)
+	used = 0
+	for tailStart > headEnd {
+		w := cellWidth(clusters[tailStart-1])
+		if used+w > tailBudget {
+			break
+		}
+		used += w
+		tailStart--
+	}
+	return strings.Join(clusters[:headEnd], "") + "…" + strings.Join(clusters[tailStart:], "")
+}
+
+// truncateRight returns the longest prefix of s that fits in width columns,
+// cutting only between grapheme clusters.
+func truncateRight(s string, width int) string {
+	var b strings.Builder
+	used := 0
+	for _, cluster := range graphemeClusters(s) {
+		w := cellWidth(cluster)
+		if used+w > width {
+			break
+		}
+		b.WriteString(cluster)
+		used += w
+	}
+	return b.String()
+}
+
+// graphemeClusters splits s into the text elements a terminal draws as one
+// unit. It covers what table cells need to avoid splitting: combining marks,
+// variation selectors, emoji modifiers, keycaps, tag characters, regional
+// indicator pairs, and ZWJ sequences.
+func graphemeClusters(s string) []string {
+	var clusters []string
+	var prev rune
+	regional := 0
+	for _, r := range s {
+		join := len(clusters) > 0 && continuesCluster(prev, r, regional)
+		if join {
+			clusters[len(clusters)-1] += string(r)
+		} else {
+			clusters = append(clusters, string(r))
+		}
+		if isRegionalIndicator(r) {
+			if join {
+				regional++
+			} else {
+				regional = 1
+			}
+		} else {
+			regional = 0
+		}
+		prev = r
+	}
+	return clusters
+}
+
+// continuesCluster reports whether r extends the cluster ending at prev.
+func continuesCluster(prev, r rune, regional int) bool {
+	switch {
+	case prev == '\u200d' || r == '\u200d':
+		return true
+	case unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Mc, r) || unicode.Is(unicode.Me, r):
+		return true
+	case r >= 0xfe00 && r <= 0xfe0f: // variation selectors
+		return true
+	case r >= 0xe0100 && r <= 0xe01ef: // variation selectors supplement
+		return true
+	case r >= 0x1f3fb && r <= 0x1f3ff: // emoji modifiers
+		return true
+	case r >= 0xe0020 && r <= 0xe007f: // tag characters
+		return true
+	case r == 0x20e3: // combining enclosing keycap
+		return true
+	case isRegionalIndicator(prev) && isRegionalIndicator(r) && regional%2 == 1:
+		return true
+	}
+	return false
+}
+
+func isRegionalIndicator(r rune) bool {
+	return r >= 0x1f1e6 && r <= 0x1f1ff
 }
 
 // renderHarnessTable draws the select step's table: a bold header, a faint
