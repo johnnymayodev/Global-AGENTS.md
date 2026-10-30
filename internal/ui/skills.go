@@ -70,9 +70,8 @@ func compactHarnessName(name string) string {
 		return name
 	}
 	first := fields[0]
-	runes := []rune(first)
-	if len(runes) > 8 {
-		return string(runes[:7]) + "…"
+	if cellWidth(first) > 8 {
+		return truncateRight(first, 7) + "…"
 	}
 	return first
 }

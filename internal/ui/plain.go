@@ -13,7 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/johnnymayodev/Global-AGENTS.md/internal/harness"
 )
@@ -240,8 +241,11 @@ func RenderTable(harnesses []harness.Harness, ctx harness.Context, selected map[
 	return strings.Join(lines, "\n"), nil
 }
 
+// cellWidth is the number of terminal columns a cell occupies. Lipgloss
+// ignores ANSI sequences and measures wide characters (CJK, emoji) as two
+// columns.
 func cellWidth(cell string) int {
-	return utf8.RuneCountInString(cell)
+	return lipgloss.Width(cell)
 }
 
 // SelectedFilePath resolves the path a user typed for the copy flow: "~" and
