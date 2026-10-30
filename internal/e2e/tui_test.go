@@ -504,7 +504,7 @@ func withEnv(home, path string) []string {
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
 		switch key {
-		case "HOME", "PATH", "TERM", "CODEX_HOME", "HERMES_HOME", "PI_CONFIG_DIR", "PI_CODING_AGENT_DIR", "COLUMNS", "LINES":
+		case "HOME", "PATH", "TERM", "CODEX_HOME", "HERMES_HOME", "PI_CONFIG_DIR", "PI_CODING_AGENT_DIR", "XDG_CONFIG_HOME", "COLUMNS", "LINES":
 			continue
 		}
 		env = append(env, entry)
@@ -520,6 +520,9 @@ func allTargets(home string) []string {
 		filepath.Join(home, ".omp", "agent", "AGENTS.md"),
 		filepath.Join(home, ".hermes", "AGENTS.md"),
 		filepath.Join(home, ".claude", "CLAUDE.md"),
+		filepath.Join(home, ".config", "muse", "AGENTS.md"),
+		filepath.Join(home, ".grok", "AGENTS.md"),
+		filepath.Join(home, ".gemini", "AGENTS.md"),
 	}
 }
 
@@ -547,13 +550,13 @@ func TestPickerReviewConfirm(t *testing.T) {
 		"Apply plan:",
 		"Apply this plan?",
 		"Confirmation received; applying plan (create 1 symlink(s)).",
-		"created symlink ~/.config/opencode/AGENTS.md",
+		"created symlink ~/.claude/CLAUDE.md",
 	)
 	if result.cookedChecked && !result.cookedAfter {
 		t.Error("the terminal was left in raw mode after a normal exit")
 	}
 
-	target := filepath.Join(home, ".config", "opencode", "AGENTS.md")
+	target := filepath.Join(home, ".claude", "CLAUDE.md")
 	link, err := os.Readlink(target)
 	if err != nil || link != source {
 		t.Errorf("target symlink = %q, %v; want a symlink to %s", link, err, source)
@@ -579,7 +582,7 @@ func TestSkillsLaunchLinkTwoCellsThenRemoveOne(t *testing.T) {
 		args: []string{"--all"},
 		steps: []tuiStep{
 			{wait: "What do you want to manage?", send: "2"},
-			// alpha/opencode, then beta/codex, then review.
+			// alpha/claude, then beta/codex, then review.
 			{wait: "Link your shared skills into each harness.", send: " jl \r"},
 			{wait: "Apply this plan?", send: "\r"},
 		},
@@ -591,16 +594,16 @@ func TestSkillsLaunchLinkTwoCellsThenRemoveOne(t *testing.T) {
 		"Link your shared skills into each harness.",
 		"Apply plan:",
 		"create 2 symlink(s)",
-		"created symlink ~/.config/opencode/skills/alpha",
+		"created symlink ~/.claude/skills/alpha",
 		"created symlink ~/.agents/skills/beta",
 	)
 	if result.cookedChecked && !result.cookedAfter {
 		t.Error("the terminal was left in raw mode after linking skills")
 	}
 
-	opencodeAlpha := filepath.Join(home, ".config", "opencode", "skills", "alpha")
+	claudeAlpha := filepath.Join(home, ".claude", "skills", "alpha")
 	codexBeta := filepath.Join(home, ".agents", "skills", "beta")
-	for target, source := range map[string]string{opencodeAlpha: alpha, codexBeta: beta} {
+	for target, source := range map[string]string{claudeAlpha: alpha, codexBeta: beta} {
 		link, err := os.Readlink(target)
 		if err != nil || link != source {
 			t.Errorf("%s symlink = %q, %v; want %s", target, link, err, source)
@@ -608,10 +611,10 @@ func TestSkillsLaunchLinkTwoCellsThenRemoveOne(t *testing.T) {
 	}
 	// Exactly two cells, never the four-cell cross product.
 	for _, target := range []string{
-		filepath.Join(home, ".config", "opencode", "skills", "beta"),
+		filepath.Join(home, ".claude", "skills", "beta"),
 		filepath.Join(home, ".agents", "skills", "alpha"),
 		filepath.Join(home, ".pi", "agent", "skills", "alpha"),
-		filepath.Join(home, ".claude", "skills", "alpha"),
+		filepath.Join(home, ".config", "opencode", "skills", "alpha"),
 	} {
 		if _, err := os.Lstat(target); err == nil {
 			t.Errorf("unexpected cross-product link: %s", target)
@@ -619,7 +622,7 @@ func TestSkillsLaunchLinkTwoCellsThenRemoveOne(t *testing.T) {
 	}
 
 	// Supporting files are reachable through the linked directory.
-	contents, err := os.ReadFile(filepath.Join(opencodeAlpha, "scripts", "run.sh"))
+	contents, err := os.ReadFile(filepath.Join(claudeAlpha, "scripts", "run.sh"))
 	if err != nil || !strings.Contains(string(contents), "alpha") {
 		t.Fatalf("supporting file through the link = %q, %v", contents, err)
 	}
@@ -629,7 +632,7 @@ func TestSkillsLaunchLinkTwoCellsThenRemoveOne(t *testing.T) {
 		args: []string{"skills", "--all"},
 		steps: []tuiStep{
 			// The matrix starts with both managed cells selected; deselect
-			// alpha/opencode only, then review.
+			// alpha/claude only, then review.
 			{wait: "Link your shared skills into each harness.", send: " \r"},
 			{wait: "Apply this plan?", send: "\r"},
 		},
@@ -639,13 +642,13 @@ func TestSkillsLaunchLinkTwoCellsThenRemoveOne(t *testing.T) {
 	}
 	second.assertContains(t,
 		"remove 1 managed symlink(s)",
-		"removed managed symlink ~/.config/opencode/skills/alpha",
+		"removed managed symlink ~/.claude/skills/alpha",
 	)
 	if second.cookedChecked && !second.cookedAfter {
 		t.Error("the terminal was left in raw mode after unlinking a skill")
 	}
 
-	if _, err := os.Lstat(opencodeAlpha); err == nil {
+	if _, err := os.Lstat(claudeAlpha); err == nil {
 		t.Error("the deselected skill link still exists")
 	}
 	if link, err := os.Readlink(codexBeta); err != nil || link != beta {
@@ -680,8 +683,8 @@ func TestSkillsModeIgnoresBrokenInstructionsSource(t *testing.T) {
 	if result.exitCode != 0 {
 		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
 	}
-	result.assertContains(t, "created symlink ~/.config/opencode/skills/alpha")
-	if link, err := os.Readlink(filepath.Join(home, ".config", "opencode", "skills", "alpha")); err != nil || link != alpha {
+	result.assertContains(t, "created symlink ~/.claude/skills/alpha")
+	if link, err := os.Readlink(filepath.Join(home, ".claude", "skills", "alpha")); err != nil || link != alpha {
 		t.Errorf("skill link = %q, %v; want %s", link, err, alpha)
 	}
 }
@@ -710,8 +713,8 @@ func TestInstructionsModeIgnoresBrokenSkillsSource(t *testing.T) {
 	if result.exitCode != 0 {
 		t.Errorf("exit code = %d, want 0\n--- output ---\n%s", result.exitCode, result.output)
 	}
-	result.assertContains(t, "created symlink ~/.config/opencode/AGENTS.md")
-	if link, err := os.Readlink(filepath.Join(home, ".config", "opencode", "AGENTS.md")); err != nil || link != source {
+	result.assertContains(t, "created symlink ~/.claude/CLAUDE.md")
+	if link, err := os.Readlink(filepath.Join(home, ".claude", "CLAUDE.md")); err != nil || link != source {
 		t.Errorf("instructions link = %q, %v; want %s", link, err, source)
 	}
 }
@@ -737,7 +740,7 @@ func TestPickerReviewCancelAtReview(t *testing.T) {
 		"Apply plan:",
 		"Cancelled. No changes made.",
 	)
-	target := filepath.Join(home, ".config", "opencode", "AGENTS.md")
+	target := filepath.Join(home, ".claude", "CLAUDE.md")
 	if _, err := os.Lstat(target); err == nil {
 		t.Errorf("%s exists after a cancelled review", target)
 	}
@@ -745,7 +748,7 @@ func TestPickerReviewCancelAtReview(t *testing.T) {
 
 // TestPickerSetupThenReview drives the wizard's first-run setup, its select
 // step, and its review step in one session: no shared file, create a blank
-// one, pick OpenCode, then apply.
+// one, pick Claude Code, then apply.
 func TestPickerSetupThenReview(t *testing.T) {
 	home := t.TempDir()
 	source := sourceFilePath(home)
@@ -771,7 +774,7 @@ func TestPickerSetupThenReview(t *testing.T) {
 		"Confirmation received; applying plan (create 1 symlink(s)).",
 	)
 
-	target := filepath.Join(home, ".config", "opencode", "AGENTS.md")
+	target := filepath.Join(home, ".claude", "CLAUDE.md")
 	link, err := os.Readlink(target)
 	if err != nil || link != source {
 		t.Errorf("target symlink = %q, %v; want a symlink to %s", link, err, source)
@@ -799,7 +802,7 @@ func TestSetupBlankThenLinkConfirm(t *testing.T) {
 		fmt.Sprintf("Created blank instructions file: %s", source),
 		"Link plan:",
 		"Apply this plan?",
-		"Confirmation received; creating 6 symlink(s).",
+		"Confirmation received; creating 9 symlink(s).",
 	)
 
 	contents, err := os.ReadFile(source)
@@ -940,9 +943,9 @@ func TestBrokenInstructionsModeIsRecoverable(t *testing.T) {
 	result.assertContains(t,
 		"Cannot prepare that mode.",
 		"canonical instructions path is",
-		"created symlink ~/.config/opencode/skills/alpha",
+		"created symlink ~/.claude/skills/alpha",
 	)
-	if link, err := os.Readlink(filepath.Join(home, ".config", "opencode", "skills", "alpha")); err != nil || link != alpha {
+	if link, err := os.Readlink(filepath.Join(home, ".claude", "skills", "alpha")); err != nil || link != alpha {
 		t.Errorf("skill link = %q, %v; want %s", link, err, alpha)
 	}
 }
@@ -976,9 +979,9 @@ func TestBrokenSkillsModeIsRecoverable(t *testing.T) {
 	result.assertContains(t,
 		"Cannot prepare that mode.",
 		"shared skills path is",
-		"created symlink ~/.config/opencode/AGENTS.md",
+		"created symlink ~/.claude/CLAUDE.md",
 	)
-	if link, err := os.Readlink(filepath.Join(home, ".config", "opencode", "AGENTS.md")); err != nil || link != source {
+	if link, err := os.Readlink(filepath.Join(home, ".claude", "CLAUDE.md")); err != nil || link != source {
 		t.Errorf("instructions link = %q, %v; want %s", link, err, source)
 	}
 }

@@ -62,14 +62,18 @@ func TestBuildContextDefaultPaths(t *testing.T) {
 	}
 
 	wantTargets := map[string]string{
-		"opencode": "/home/user/.config/opencode/AGENTS.md",
-		"codex":    "/home/user/.codex/AGENTS.md",
-		"pi":       "/home/user/.pi/agent/AGENTS.md",
-		"omp":      "/home/user/.omp/agent/AGENTS.md",
-		"hermes":   "/home/user/.hermes/AGENTS.md",
-		"claude":   "/home/user/.claude/CLAUDE.md",
+		"opencode":    "/home/user/.config/opencode/AGENTS.md",
+		"codex":       "/home/user/.codex/AGENTS.md",
+		"pi":          "/home/user/.pi/agent/AGENTS.md",
+		"omp":         "/home/user/.omp/agent/AGENTS.md",
+		"hermes":      "/home/user/.hermes/AGENTS.md",
+		"claude":      "/home/user/.claude/CLAUDE.md",
+		"cursor":      "",
+		"muse":        "/home/user/.config/muse/AGENTS.md",
+		"grok":        "/home/user/.grok/AGENTS.md",
+		"antigravity": "/home/user/.gemini/AGENTS.md",
 	}
-	wantOrder := []string{"opencode", "codex", "pi", "omp", "hermes", "claude"}
+	wantOrder := []string{"claude", "codex", "cursor", "opencode", "pi", "omp", "grok", "hermes", "muse", "antigravity"}
 	if len(ctx.Harnesses) != len(wantOrder) {
 		t.Fatalf("len(Harnesses) = %d, want %d", len(ctx.Harnesses), len(wantOrder))
 	}
@@ -554,7 +558,26 @@ func TestVisible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Visible: %v", err)
 	}
-	if len(all) != len(ctx.Harnesses) {
-		t.Fatalf("Visible(all) = %d harnesses, want %d", len(all), len(ctx.Harnesses))
+	if len(all) != len(WithInstructions(ctx.Harnesses)) {
+		t.Fatalf("Visible(all) = %d harnesses, want %d", len(all), len(WithInstructions(ctx.Harnesses)))
+	}
+	for _, h := range all {
+		if !h.HasInstructions() {
+			t.Errorf("Visible(all) includes %s without an instructions target", h.ID)
+		}
+	}
+}
+
+func TestCursorIsSkillsOnly(t *testing.T) {
+	ctx, err := BuildContext(lookupFrom(map[string]string{"HOME": "/home/user"}), "/work")
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	cursor := harnessByID(t, ctx, "cursor")
+	if cursor.HasInstructions() {
+		t.Errorf("cursor target = %q, want no global instructions target", cursor.Target)
+	}
+	if got, want := cursor.SkillsDir, "/home/user/.cursor/skills"; got != want {
+		t.Errorf("cursor SkillsDir = %q, want %q", got, want)
 	}
 }

@@ -208,6 +208,9 @@ func sourceAndAllLinked(t *testing.T, home string) {
 		filepath.Join(home, ".omp", "agent", "AGENTS.md"),
 		filepath.Join(home, ".hermes", "AGENTS.md"),
 		filepath.Join(home, ".claude", "CLAUDE.md"),
+		filepath.Join(home, ".config", "muse", "AGENTS.md"),
+		filepath.Join(home, ".grok", "AGENTS.md"),
+		filepath.Join(home, ".gemini", "AGENTS.md"),
 	}
 	for _, target := range targets {
 		mustMkdirAll(t, filepath.Dir(target))

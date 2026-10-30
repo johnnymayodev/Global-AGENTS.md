@@ -1,21 +1,33 @@
 Link plan:
   Create these symlinks (creating missing parent directories if needed):
-    ~/.config/opencode/skills/synced -> ~/.config/agents/skills/synced
     ~/.agents/skills/synced -> ~/.config/agents/skills/synced
+    ~/.cursor/skills/synced -> ~/.config/agents/skills/synced
+    ~/.config/opencode/skills/synced -> ~/.config/agents/skills/synced
     ~/.pi/agent/skills/synced -> ~/.config/agents/skills/synced
     ~/.omp/agent/skills/synced -> ~/.config/agents/skills/synced
+    ~/.grok/skills/synced -> ~/.config/agents/skills/synced
     ~/.hermes/skills/synced -> ~/.config/agents/skills/synced
+    ~/.config/muse/skills/synced -> ~/.config/agents/skills/synced
+    ~/.gemini/config/skills/synced -> ~/.config/agents/skills/synced
   Unavailable skill/harness pairs:
     ~/.claude/skills/synced: Claude reserves the name "synced" for skills synced from claude.ai
   Existing files and unrelated symlinks will not be overwritten.
-Type "yes" to create the 5 symlink(s) listed above: Confirmation received; creating 5 symlink(s).
-created directory ~/.config/opencode
-created symlink ~/.config/opencode/skills/synced
+Type "yes" to create the 9 symlink(s) listed above: Confirmation received; creating 9 symlink(s).
 created directory ~/.agents
 created symlink ~/.agents/skills/synced
+created directory ~/.cursor
+created symlink ~/.cursor/skills/synced
+created directory ~/.config/opencode
+created symlink ~/.config/opencode/skills/synced
 created directory ~/.pi
 created symlink ~/.pi/agent/skills/synced
 created directory ~/.omp
 created symlink ~/.omp/agent/skills/synced
+created directory ~/.grok
+created symlink ~/.grok/skills/synced
 created directory ~/.hermes
 created symlink ~/.hermes/skills/synced
+created directory ~/.config/muse
+created symlink ~/.config/muse/skills/synced
+created directory ~/.gemini
+created symlink ~/.gemini/config/skills/synced

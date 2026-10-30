@@ -233,19 +233,28 @@ or copy skills.
 
 ## Supported harnesses
 
-| Harness      | Global instructions file                                   | Global skills directory                          | Executable        |
-| ------------ | ---------------------------------------------------------- | ------------------------------------------------ | ----------------- |
-| Claude Code  | `~/.claude/CLAUDE.md`                                      | `~/.claude/skills`                               | `claude`          |
-| Codex        | `$CODEX_HOME/AGENTS.md` (default `~/.codex/AGENTS.md`)     | `~/.agents/skills`                               | `codex`           |
-| Hermes Agent | `$HERMES_HOME/AGENTS.md` (default `~/.hermes/AGENTS.md`)   | `$HERMES_HOME/skills`                            | `hermes`          |
-| OpenCode     | `~/.config/opencode/AGENTS.md`                             | `~/.config/opencode/skills`                      | `opencode`        |
-| Pi           | `~/.pi/agent/AGENTS.md`                                    | `~/.pi/agent/skills`                             | `pi`              |
-| OMP          | `<agent dir>/AGENTS.md` (default `~/.omp/agent/AGENTS.md`) | `<agent dir>/skills`                             | `omp`, `oh-my-pi` |
+| Harness      | Global instructions file                                   | Global skills directory                          | Executable               |
+| ------------ | ---------------------------------------------------------- | ------------------------------------------------ | ------------------------ |
+| Claude Code  | `~/.claude/CLAUDE.md`                                      | `~/.claude/skills`                               | `claude`                 |
+| Codex        | `$CODEX_HOME/AGENTS.md` (default `~/.codex/AGENTS.md`)     | `~/.agents/skills`                               | `codex`                  |
+| Cursor       | — (user rules live in Cursor settings)                     | `~/.cursor/skills`                               | `cursor`, `cursor-agent` |
+| OpenCode     | `~/.config/opencode/AGENTS.md`                             | `~/.config/opencode/skills`                      | `opencode`               |
+| Pi           | `~/.pi/agent/AGENTS.md`                                    | `~/.pi/agent/skills`                             | `pi`                     |
+| omp          | `<agent dir>/AGENTS.md` (default `~/.omp/agent/AGENTS.md`) | `<agent dir>/skills`                             | `omp`, `oh-my-pi`        |
+| Grok         | `~/.grok/AGENTS.md`                                        | `~/.grok/skills`                                 | `grok`                   |
+| Hermes Agent | `$HERMES_HOME/AGENTS.md` (default `~/.hermes/AGENTS.md`)   | `$HERMES_HOME/skills`                            | `hermes`                 |
+| Muse Code    | `$XDG_CONFIG_HOME/muse/AGENTS.md` (`~/.config/muse/...`)   | `$XDG_CONFIG_HOME/muse/skills`                   | `muse`                   |
+| Antigravity  | `~/.gemini/AGENTS.md`                                      | `~/.gemini/config/skills`                        | `agy`, `antigravity`     |
 
 Codex's documented user skills location is `~/.agents/skills`; `CODEX_HOME`
 continues to affect only its instructions file. OMP follows `PI_CONFIG_DIR`,
 `OMP_PROFILE`/`PI_PROFILE`, and `PI_CODING_AGENT_DIR` for both targets, and
-Hermes follows `HERMES_HOME` for both.
+Hermes follows `HERMES_HOME` for both. Muse Code follows an absolute
+`XDG_CONFIG_HOME` for both targets and defaults to `~/.config/muse`.
+
+Cursor has no global `AGENTS.md`; its user rules are stored in Cursor settings,
+so the instructions picker and `--list` omit it. It is still available in the
+skills matrix.
 
 Two harness-specific notes can appear after linking or reconciliation runs:
 
@@ -288,10 +297,11 @@ re-checked immediately before it is changed.
 ## Cross-discovery
 
 The matrix manages physical destinations, not effective visibility. OpenCode,
-Codex, and Pi can also read shared locations such as `~/.agents/skills`, and
-OpenCode can read Claude-compatible locations. A skill linked for one harness
-may therefore be discovered by another. The tool does not create duplicate
-compatibility links or edit harness settings to prevent this.
+Codex, Pi, Cursor, Muse Code, and Grok can also read shared locations such as
+`~/.agents/skills`, and OpenCode and Grok can read Claude-compatible locations.
+A skill linked for one harness may therefore be discovered by another. The tool
+does not create duplicate compatibility links or edit harness settings to
+prevent this.
 
 Other files and harness-specific skills in a skills directory are left alone;
 the tool only manages the individual names it links.
