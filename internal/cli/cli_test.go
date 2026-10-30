@@ -405,6 +405,40 @@ func TestSkillsListIsReadOnly(t *testing.T) {
 	}
 }
 
+func TestLinkNotesErrorMakesNoChanges(t *testing.T) {
+	home := t.TempDir()
+	writeSource(t, home)
+	codexHome := filepath.Join(home, ".codex")
+	mustMkdirAll(t, codexHome)
+	// A self-referential override symlink makes LinkNotes' stat fail after the
+	// link plan succeeds.
+	mustSymlink(t, "AGENTS.override.md", filepath.Join(codexHome, "AGENTS.override.md"))
+
+	var stdout, stderr bytes.Buffer
+	code := cli.RunWith([]string{"link"}, cli.Options{
+		LookupEnv: lookupEnv(scenarioEnv(home)),
+		Cwd:       home,
+		Stdin:     strings.NewReader("yes\n"),
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+	})
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+	}
+	for _, target := range []string{
+		filepath.Join(home, ".config", "opencode", "AGENTS.md"),
+		filepath.Join(home, ".codex", "AGENTS.md"),
+		filepath.Join(home, ".pi", "agent", "AGENTS.md"),
+		filepath.Join(home, ".omp", "agent", "AGENTS.md"),
+		filepath.Join(home, ".hermes", "AGENTS.md"),
+		filepath.Join(home, ".claude", "CLAUDE.md"),
+	} {
+		if _, err := os.Lstat(target); err == nil {
+			t.Errorf("the note lookup error created %s before aborting", target)
+		}
+	}
+}
+
 func assertGolden(t *testing.T, name, got, home string) {
 	t.Helper()
 	if *updateGolden {
