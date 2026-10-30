@@ -190,7 +190,7 @@ func cellSelected(cell SkillCell, selected map[string]bool, mode skillPlanMode) 
 func CreateSkillLinks(cells []SkillCell, ctx harness.Context, stdout, stderr io.Writer) error {
 	items := make([]linkTarget, 0, len(cells))
 	for _, cell := range cells {
-		items = append(items, linkTarget{Source: cell.Source, Target: cell.Target})
+		items = append(items, linkTarget{Source: cell.Source, Target: cell.Target, Directory: true})
 	}
 	return createTargets(items, ctx, stdout, stderr)
 }

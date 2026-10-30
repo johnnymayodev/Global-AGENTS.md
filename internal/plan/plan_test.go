@@ -241,6 +241,62 @@ func TestCreateLinks(t *testing.T) {
 		}
 	})
 
+	t.Run("source removed after planning is refused", func(t *testing.T) {
+		ctx := testContext(t)
+		writeSource(t, ctx)
+		h := testHarness("opencode", filepath.Join(ctx.Home, ".config", "opencode", "AGENTS.md"))
+		plan, err := Links([]harness.Harness{h}, ctx)
+		if err != nil {
+			t.Fatalf("Links: %v", err)
+		}
+		if err := os.Remove(ctx.SourceFile); err != nil {
+			t.Fatal(err)
+		}
+
+		var stdout, stderr bytes.Buffer
+		err = CreateLinks(plan.ToCreate, ctx, &stdout, &stderr)
+		want := "link source disappeared after planning: " + ctx.SourceFile + "; no changes made"
+		if err == nil || err.Error() != want {
+			t.Fatalf("CreateLinks error = %v, want %q", err, want)
+		}
+		if _, statErr := os.Lstat(h.Target); statErr == nil {
+			t.Error("target symlink should not have been created")
+		}
+		if _, statErr := os.Stat(filepath.Join(ctx.Home, ".config")); statErr == nil {
+			t.Error("destination directories should not have been created")
+		}
+		wantStop := "stopped at " + h.Target + "; earlier reported changes remain, and later destinations were not attempted.\n"
+		if stderr.String() != wantStop {
+			t.Errorf("stderr = %q, want %q", stderr.String(), wantStop)
+		}
+	})
+
+	t.Run("source changed type after planning is refused", func(t *testing.T) {
+		ctx := testContext(t)
+		writeSource(t, ctx)
+		h := testHarness("opencode", filepath.Join(ctx.Home, ".config", "opencode", "AGENTS.md"))
+		plan, err := Links([]harness.Harness{h}, ctx)
+		if err != nil {
+			t.Fatalf("Links: %v", err)
+		}
+		if err := os.Remove(ctx.SourceFile); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(ctx.SourceFile, 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		var stdout, stderr bytes.Buffer
+		err = CreateLinks(plan.ToCreate, ctx, &stdout, &stderr)
+		want := "link source is no longer a regular file: " + ctx.SourceFile + "; no changes made"
+		if err == nil || err.Error() != want {
+			t.Fatalf("CreateLinks error = %v, want %q", err, want)
+		}
+		if _, statErr := os.Lstat(h.Target); statErr == nil {
+			t.Error("target symlink should not have been created")
+		}
+	})
+
 	t.Run("failure after directory creation reports a partial directory", func(t *testing.T) {
 		ctx := testContext(t)
 		writeSource(t, ctx)
