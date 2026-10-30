@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/main
 
 The runner downloads `agent-links-<target>` and its matching
 `checksums-<target>.txt` from the version pinned in `run.sh` (currently
-`v0.5.1`), verifies the executable's SHA-256 checksum, and caches both under
+`v0.5.2`), verifies the executable's SHA-256 checksum, and caches both under
 `${XDG_CACHE_HOME:-$HOME/.cache}/agent-links/v<version>/<target>/`. The first
 run downloads both files; later runs re-verify the cached executable's SHA-256
 and need no network. It forwards your arguments, working directory,
