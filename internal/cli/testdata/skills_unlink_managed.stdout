@@ -1,6 +1,6 @@
 Unlink plan:
   Remove only these managed symlink entries (not their target files):
-    ~/.config/opencode/skills/git-release -> ~/.config/agents/skills/git-release
+    ~/.config/opencode/skills/git-release -> ~/.global-agents/skills/git-release
   Already absent: ~/.claude/skills/git-release
   Already absent: ~/.agents/skills/git-release
   Already absent: ~/.cursor/skills/git-release

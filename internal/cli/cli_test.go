@@ -159,8 +159,8 @@ func constStdin(input string) func(string) string {
 
 func writeSource(t *testing.T, home string) {
 	t.Helper()
-	mustMkdirAll(t, filepath.Join(home, ".config", "agents"))
-	mustWriteFile(t, filepath.Join(home, ".config", "agents", "AGENTS.md"), "# Shared instructions\n")
+	mustMkdirAll(t, filepath.Join(home, harness.SourceDirName))
+	mustWriteFile(t, filepath.Join(home, harness.SourceDirName, "AGENTS.md"), "# Shared instructions\n")
 }
 
 func sourceAndClaudeDir(t *testing.T, home string) {
@@ -194,13 +194,13 @@ func sourceAndManagedLink(t *testing.T, home string) {
 	t.Helper()
 	writeSource(t, home)
 	mustMkdirAll(t, filepath.Join(home, ".config", "opencode"))
-	mustSymlink(t, filepath.Join(home, ".config", "agents", "AGENTS.md"), filepath.Join(home, ".config", "opencode", "AGENTS.md"))
+	mustSymlink(t, filepath.Join(home, harness.SourceDirName, "AGENTS.md"), filepath.Join(home, ".config", "opencode", "AGENTS.md"))
 }
 
 func sourceAndAllLinked(t *testing.T, home string) {
 	t.Helper()
 	writeSource(t, home)
-	source := filepath.Join(home, ".config", "agents", "AGENTS.md")
+	source := filepath.Join(home, harness.SourceDirName, "AGENTS.md")
 	targets := []string{
 		filepath.Join(home, ".config", "opencode", "AGENTS.md"),
 		filepath.Join(home, ".codex", "AGENTS.md"),
@@ -234,7 +234,7 @@ func sourceAndUntouchedTarget(t *testing.T, home string) {
 
 func writeSkills(t *testing.T, home string) {
 	t.Helper()
-	root := filepath.Join(home, ".config", "agents", "skills")
+	root := filepath.Join(home, harness.SourceDirName, "skills")
 	for _, name := range []string{"git-release", "pdf-tools", "synced"} {
 		mustMkdirAll(t, filepath.Join(root, name))
 		mustWriteFile(t, filepath.Join(root, name, "SKILL.md"), "# "+name+"\n")
@@ -248,7 +248,7 @@ func skillsWithManagedLink(t *testing.T, home string) {
 	writeSkills(t, home)
 	mustMkdirAll(t, filepath.Join(home, ".config", "opencode", "skills"))
 	mustSymlink(t,
-		filepath.Join(home, ".config", "agents", "skills", "git-release"),
+		filepath.Join(home, harness.SourceDirName, "skills", "git-release"),
 		filepath.Join(home, ".config", "opencode", "skills", "git-release"))
 }
 
@@ -280,7 +280,7 @@ func TestSkillsEmptyDoesNotCreateRoot(t *testing.T) {
 	if !strings.Contains(stdout.String(), "No shared skills found at") {
 		t.Errorf("stdout = %q, want the empty-state guidance", stdout.String())
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "agents", "skills")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, harness.SourceDirName, "skills")); !os.IsNotExist(err) {
 		t.Errorf("the skills root was created or could not be checked: %v", err)
 	}
 }
@@ -303,7 +303,7 @@ func TestModesDoNotRequireEachOther(t *testing.T) {
 		if !strings.Contains(stdout.String(), "Shared skills:") {
 			t.Errorf("skills table missing:\n%s", stdout.String())
 		}
-		if _, err := os.Stat(filepath.Join(home, ".config", "agents", "AGENTS.md")); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(home, harness.SourceDirName, "AGENTS.md")); !os.IsNotExist(err) {
 			t.Errorf("instructions file was created by skills mode: %v", err)
 		}
 	})
@@ -330,10 +330,10 @@ func TestModesDoNotRequireEachOther(t *testing.T) {
 
 func TestSkillsRootFileIsAnError(t *testing.T) {
 	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, ".config", "agents"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, harness.SourceDirName), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".config", "agents", "skills"), []byte("not a directory\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, harness.SourceDirName, "skills"), []byte("not a directory\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
@@ -397,7 +397,7 @@ func TestSkillsListIsReadOnly(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0; stderr:\n%s", code, stderr.String())
 	}
 	managed := filepath.Join(home, ".config", "opencode", "skills", "git-release")
-	if dest, err := os.Readlink(managed); err != nil || dest != filepath.Join(home, ".config", "agents", "skills", "git-release") {
+	if dest, err := os.Readlink(managed); err != nil || dest != filepath.Join(home, harness.SourceDirName, "skills", "git-release") {
 		t.Errorf("managed link changed: %q, %v", dest, err)
 	}
 	if _, err := os.Lstat(filepath.Join(home, ".agents", "skills", "git-release")); err == nil {

@@ -1,4 +1,4 @@
-Shared skills: {{HOME}}/.config/agents/skills
+Shared skills: {{HOME}}/.global-agents/skills
 
 ┌──┬─────────────┬─────────────┬───────┬────────┬──────────┬────┬─────┬──────┬──────────────┬───────────┬─────────────┐
 │  │ Skill       │ Claude Code │ Codex │ Cursor │ OpenCode │ Pi │ OMP │ Grok │ Hermes Agent │ Muse Code │ Antigravity │

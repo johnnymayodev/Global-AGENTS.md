@@ -54,7 +54,7 @@ func TestBuildContextDefaultPaths(t *testing.T) {
 	if ctx.Home != "/home/user" {
 		t.Errorf("Home = %q", ctx.Home)
 	}
-	if ctx.SourceFile != "/home/user/.config/agents/AGENTS.md" {
+	if ctx.SourceFile != "/home/user/.global-agents/AGENTS.md" {
 		t.Errorf("SourceFile = %q", ctx.SourceFile)
 	}
 	if ctx.CodexHome != "/home/user/.codex" {
@@ -409,7 +409,7 @@ func TestSourceFileExists(t *testing.T) {
 
 func TestAssertSourceFile(t *testing.T) {
 	dir := t.TempDir()
-	source := filepath.Join(dir, ".config", "agents", "AGENTS.md")
+	source := filepath.Join(dir, ".global-agents", "AGENTS.md")
 	ctx := Context{SourceFile: source}
 
 	err := AssertSourceFile(ctx)

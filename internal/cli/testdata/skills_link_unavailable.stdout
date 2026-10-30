@@ -1,14 +1,14 @@
 Link plan:
   Create these symlinks (creating missing parent directories if needed):
-    ~/.agents/skills/synced -> ~/.config/agents/skills/synced
-    ~/.cursor/skills/synced -> ~/.config/agents/skills/synced
-    ~/.config/opencode/skills/synced -> ~/.config/agents/skills/synced
-    ~/.pi/agent/skills/synced -> ~/.config/agents/skills/synced
-    ~/.omp/agent/skills/synced -> ~/.config/agents/skills/synced
-    ~/.grok/skills/synced -> ~/.config/agents/skills/synced
-    ~/.hermes/skills/synced -> ~/.config/agents/skills/synced
-    ~/.config/muse/skills/synced -> ~/.config/agents/skills/synced
-    ~/.gemini/config/skills/synced -> ~/.config/agents/skills/synced
+    ~/.agents/skills/synced -> ~/.global-agents/skills/synced
+    ~/.cursor/skills/synced -> ~/.global-agents/skills/synced
+    ~/.config/opencode/skills/synced -> ~/.global-agents/skills/synced
+    ~/.pi/agent/skills/synced -> ~/.global-agents/skills/synced
+    ~/.omp/agent/skills/synced -> ~/.global-agents/skills/synced
+    ~/.grok/skills/synced -> ~/.global-agents/skills/synced
+    ~/.hermes/skills/synced -> ~/.global-agents/skills/synced
+    ~/.config/muse/skills/synced -> ~/.global-agents/skills/synced
+    ~/.gemini/config/skills/synced -> ~/.global-agents/skills/synced
   Unavailable skill/harness pairs:
     ~/.claude/skills/synced: Claude reserves the name "synced" for skills synced from claude.ai
   Existing files and unrelated symlinks will not be overwritten.
@@ -17,7 +17,7 @@ created directory ~/.agents
 created symlink ~/.agents/skills/synced
 created directory ~/.cursor
 created symlink ~/.cursor/skills/synced
-created directory ~/.config/opencode
+created directory ~/.config
 created symlink ~/.config/opencode/skills/synced
 created directory ~/.pi
 created symlink ~/.pi/agent/skills/synced

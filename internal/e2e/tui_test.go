@@ -460,11 +460,11 @@ func tuiEnv(home, path string) []string {
 }
 
 func sourceFilePath(home string) string {
-	return filepath.Join(home, ".config", "agents", "AGENTS.md")
+	return filepath.Join(home, ".global-agents", "AGENTS.md")
 }
 
 func skillsRoot(home string) string {
-	return filepath.Join(home, ".config", "agents", "skills")
+	return filepath.Join(home, ".global-agents", "skills")
 }
 
 // writeSkill creates a canonical skill directory with SKILL.md and one
@@ -694,10 +694,10 @@ func TestInstructionsModeIgnoresBrokenSkillsSource(t *testing.T) {
 	source := writeSource(t, home)
 	// A regular file at the skills root is an error for the skills source,
 	// but must not block instructions mode.
-	if err := os.MkdirAll(filepath.Join(home, ".config", "agents"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, ".global-agents"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".config", "agents", "skills"), []byte("not a directory\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".global-agents", "skills"), []byte("not a directory\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -955,7 +955,7 @@ func TestBrokenSkillsModeIsRecoverable(t *testing.T) {
 	home := t.TempDir()
 	source := writeSource(t, home)
 	// A file at the skills root breaks only that mode.
-	if err := os.MkdirAll(filepath.Join(home, ".config", "agents"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(home, ".global-agents"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(skillsRoot(home), []byte("not a directory\n"), 0o644); err != nil {

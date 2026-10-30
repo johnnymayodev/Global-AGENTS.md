@@ -179,7 +179,7 @@ func TestCreateLinks(t *testing.T) {
 		if err := CreateLinks([]harness.Harness{h}, ctx, &stdout, &stderr); err != nil {
 			t.Fatalf("CreateLinks: %v", err)
 		}
-		if !strings.Contains(stdout.String(), "created directory ~/.config/opencode\n") {
+		if !strings.Contains(stdout.String(), "created directory ~/.config\n") {
 			t.Errorf("stdout = %q, want a created directory line for the first created directory", stdout.String())
 		}
 		if !strings.Contains(stdout.String(), "created symlink ~/.config/opencode/AGENTS.md\n") {

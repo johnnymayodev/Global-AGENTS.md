@@ -1,13 +1,13 @@
 Link plan:
   Create these symlinks (creating missing parent directories if needed):
-    ~/.claude/CLAUDE.md -> ~/.config/agents/AGENTS.md
-    ~/.codex/AGENTS.md -> ~/.config/agents/AGENTS.md
-    ~/.config/opencode/AGENTS.md -> ~/.config/agents/AGENTS.md
-    ~/.pi/agent/AGENTS.md -> ~/.config/agents/AGENTS.md
-    ~/.omp/agent/AGENTS.md -> ~/.config/agents/AGENTS.md
-    ~/.grok/AGENTS.md -> ~/.config/agents/AGENTS.md
-    ~/.hermes/AGENTS.md -> ~/.config/agents/AGENTS.md
-    ~/.config/muse/AGENTS.md -> ~/.config/agents/AGENTS.md
-    ~/.gemini/AGENTS.md -> ~/.config/agents/AGENTS.md
+    ~/.claude/CLAUDE.md -> ~/.global-agents/AGENTS.md
+    ~/.codex/AGENTS.md -> ~/.global-agents/AGENTS.md
+    ~/.config/opencode/AGENTS.md -> ~/.global-agents/AGENTS.md
+    ~/.pi/agent/AGENTS.md -> ~/.global-agents/AGENTS.md
+    ~/.omp/agent/AGENTS.md -> ~/.global-agents/AGENTS.md
+    ~/.grok/AGENTS.md -> ~/.global-agents/AGENTS.md
+    ~/.hermes/AGENTS.md -> ~/.global-agents/AGENTS.md
+    ~/.config/muse/AGENTS.md -> ~/.global-agents/AGENTS.md
+    ~/.gemini/AGENTS.md -> ~/.global-agents/AGENTS.md
   Existing files and unrelated symlinks will not be overwritten.
 Type "yes" to create the 9 symlink(s) listed above: Cancelled (no confirmation received). No changes made.

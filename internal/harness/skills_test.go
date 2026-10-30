@@ -11,7 +11,7 @@ func TestBuildContextSkillsPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}
-	if ctx.SourceSkillsDir != "/home/user/.config/agents/skills" {
+	if ctx.SourceSkillsDir != "/home/user/.global-agents/skills" {
 		t.Errorf("SourceSkillsDir = %q", ctx.SourceSkillsDir)
 	}
 

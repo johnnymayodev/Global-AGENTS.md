@@ -12,6 +12,11 @@ import (
 	"syscall"
 )
 
+// SourceDirName is the directory under the user's home directory that holds the
+// shared instructions file and skills every harness links to. It is deliberately
+// outside every harness directory and outside the XDG config home.
+const SourceDirName = ".global-agents"
+
 // Harness is one supported AI coding harness and where it reads its global
 // instructions and skills from.
 type Harness struct {
@@ -76,8 +81,9 @@ func BuildContext(lookup LookupEnv, cwd string) (Context, error) {
 		return fallback
 	}
 
-	sourceFile := filepath.Join(home, ".config", "agents", "AGENTS.md")
-	sourceSkillsDir := filepath.Join(home, ".config", "agents", "skills")
+	sourceDir := filepath.Join(home, SourceDirName)
+	sourceFile := filepath.Join(sourceDir, "AGENTS.md")
+	sourceSkillsDir := filepath.Join(sourceDir, "skills")
 	codexHome := absoluteFrom(envOr("CODEX_HOME", filepath.Join(home, ".codex")), cwd)
 	hermesHome := absoluteFrom(envOr("HERMES_HOME", filepath.Join(home, ".hermes")), cwd)
 	configHome := filepath.Join(home, ".config")
