@@ -14,7 +14,7 @@ set -eu
 # No runtime, PATH change, or installation is required.
 
 repository=johnnymayodev/Global-AGENTS.md
-version=0.5.0
+version=0.5.1
 
 os=$(uname -s)
 machine=$(uname -m)
