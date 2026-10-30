@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,6 +110,18 @@ func TestDiscover(t *testing.T) {
 		}
 	})
 
+	t.Run("rejects a skill directory with control characters", func(t *testing.T) {
+		root := t.TempDir()
+		name := "evil\x1b[31m\nname"
+		makeSkill(t, root, name)
+
+		_, err := Discover(root)
+		want := fmt.Sprintf("invalid skill directory name: %q", name)
+		if err == nil || err.Error() != want {
+			t.Fatalf("Discover error = %v, want %q", err, want)
+		}
+	})
+
 	t.Run("sorts by name", func(t *testing.T) {
 		root := t.TempDir()
 		makeSkill(t, root, "zeta")
@@ -164,13 +177,13 @@ func TestFind(t *testing.T) {
 }
 
 func TestValidateName(t *testing.T) {
-	valid := []string{"git-release", "pdf_tools", "skill.name", "A", "..hidden"}
+	valid := []string{"git-release", "pdf_tools", "skill.name", "A", "..hidden", "技能"}
 	for _, name := range valid {
 		if err := ValidateName(name); err != nil {
 			t.Errorf("ValidateName(%q) = %v, want nil", name, err)
 		}
 	}
-	invalid := []string{"", ".", "..", "/abs", "a/b", `a\b`, "../escape"}
+	invalid := []string{"", ".", "..", "/abs", "a/b", `a\b`, "../escape", "\x1b[31m", "a\nb", "a\tb"}
 	for _, name := range invalid {
 		if err := ValidateName(name); err == nil {
 			t.Errorf("ValidateName(%q) = nil, want an error", name)
