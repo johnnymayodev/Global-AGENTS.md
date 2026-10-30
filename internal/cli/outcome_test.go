@@ -16,14 +16,24 @@ func TestWizardOutcome(t *testing.T) {
 		{name: "cancelled", result: ui.WizardResult{Cancelled: true}, want: "Cancelled. No changes made."},
 		{
 			name:   "cancelled after setup",
-			result: ui.WizardResult{Cancelled: true, Notices: notice},
+			result: ui.WizardResult{Cancelled: true, Created: true},
 			want:   "Cancelled. No links were changed.",
+		},
+		{
+			name:   "cancelled with notices but no creation",
+			result: ui.WizardResult{Cancelled: true, Notices: notice},
+			want:   "Cancelled. No changes made.",
 		},
 		{name: "no changes", result: ui.WizardResult{NoChanges: true}, want: "No changes made."},
 		{
 			name:   "no changes after setup",
-			result: ui.WizardResult{NoChanges: true, Notices: notice},
+			result: ui.WizardResult{NoChanges: true, Created: true},
 			want:   "No links were changed.",
+		},
+		{
+			name:   "no changes with notices but no creation",
+			result: ui.WizardResult{NoChanges: true, Notices: notice},
+			want:   "No changes made.",
 		},
 		{name: "applied", result: ui.WizardResult{Applied: true}, want: ""},
 		{name: "unfinished", result: ui.WizardResult{}, want: ""},

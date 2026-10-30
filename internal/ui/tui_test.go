@@ -433,8 +433,8 @@ func TestWizardSetupBlankThenSelect(t *testing.T) {
 	if m.step != stepSelect {
 		t.Fatalf("step = %v, want select after setup", m.step)
 	}
-	if result := m.result(); len(result.Notices) != 1 || !strings.Contains(result.Notices[0], "Created blank instructions file: "+ctx.SourceFile) {
-		t.Fatalf("notices = %v, want the created line", result.Notices)
+	if result := m.result(); !result.Created || len(result.Notices) != 1 || !strings.Contains(result.Notices[0], "Created blank instructions file: "+ctx.SourceFile) {
+		t.Fatalf("result = %+v, want Created with the created notice", result)
 	}
 	if !strings.Contains(viewText(m), "Link your shared instructions into each harness.") {
 		t.Errorf("select view not shown after setup:\n%s", viewText(m))
@@ -529,8 +529,8 @@ func TestWizardSetupCopyPath(t *testing.T) {
 	}
 	result := m.result()
 	want := "Created " + ctx.SourceFile + " from " + selected
-	if len(result.Notices) != 1 || result.Notices[0] != want {
-		t.Fatalf("notices = %v, want %q", result.Notices, want)
+	if !result.Created || len(result.Notices) != 1 || result.Notices[0] != want {
+		t.Fatalf("result = %+v, want Created with notice %q", result, want)
 	}
 	contents, err := os.ReadFile(ctx.SourceFile)
 	if err != nil || string(contents) != "# Shared\n" {
