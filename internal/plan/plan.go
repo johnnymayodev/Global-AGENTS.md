@@ -135,6 +135,9 @@ func Reconcile(visible []harness.Harness, selected map[string]bool, ctx harness.
 type linkTarget struct {
 	Source string
 	Target string
+	// Directory is true when the source must be a directory rather than a
+	// regular file.
+	Directory bool
 }
 
 // CreateLinks creates the given symlinks, logging progress to stdout. On
@@ -178,6 +181,9 @@ func createTarget(item linkTarget, ctx harness.Context, stdout io.Writer) (direc
 	if state != harness.Absent {
 		return false, fmt.Errorf("destination changed after planning; refusing to overwrite: %s", item.Target)
 	}
+	if err := assertLinkSource(item); err != nil {
+		return false, err
+	}
 
 	createdDir, err := mkdirParents(filepath.Dir(item.Target))
 	if err != nil {
@@ -191,6 +197,29 @@ func createTarget(item linkTarget, ctx harness.Context, stdout io.Writer) (direc
 	}
 	fmt.Fprintf(stdout, "created symlink %s\n", harness.DisplayPath(item.Target, ctx.Home))
 	return true, nil
+}
+
+// assertLinkSource revalidates the source immediately before a symlink is
+// created, so a source that disappeared or changed type after planning fails
+// instead of producing a dangling or wrong link.
+func assertLinkSource(item linkTarget) error {
+	info, err := os.Stat(item.Source)
+	if err != nil {
+		if harness.MissingPath(err) {
+			return fmt.Errorf("link source disappeared after planning: %s; no changes made", item.Source)
+		}
+		return err
+	}
+	if item.Directory {
+		if !info.IsDir() {
+			return fmt.Errorf("link source is no longer a directory: %s; no changes made", item.Source)
+		}
+		return nil
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("link source is no longer a regular file: %s; no changes made", item.Source)
+	}
+	return nil
 }
 
 // createSymlink creates an exclusive symlink, translating EEXIST into the

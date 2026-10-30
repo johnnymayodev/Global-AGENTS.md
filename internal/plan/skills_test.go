@@ -281,6 +281,58 @@ func TestCreateSkillLinks(t *testing.T) {
 			t.Fatalf("CreateSkillLinks error = %v, want %q", err, want)
 		}
 	})
+
+	t.Run("source removed after planning is refused", func(t *testing.T) {
+		root := t.TempDir()
+		alpha := makeSkillDir(t, root, "alpha")
+		h := skillTestHarness("three", filepath.Join(t.TempDir(), "skills"))
+		cell := skillCell(t, "alpha", h, root)
+		plan, err := SkillLinks([]SkillCell{cell})
+		if err != nil {
+			t.Fatalf("SkillLinks: %v", err)
+		}
+		if err := os.RemoveAll(alpha); err != nil {
+			t.Fatal(err)
+		}
+
+		var stdout, stderr bytes.Buffer
+		err = CreateSkillLinks(plan.ToCreate, testContext(t), &stdout, &stderr)
+		want := "link source disappeared after planning: " + alpha + "; no changes made"
+		if err == nil || err.Error() != want {
+			t.Fatalf("CreateSkillLinks error = %v, want %q", err, want)
+		}
+		if _, statErr := os.Lstat(cell.Target); statErr == nil {
+			t.Error("target symlink should not have been created")
+		}
+		if _, statErr := os.Stat(h.SkillsDir); statErr == nil {
+			t.Error("destination directories should not have been created")
+		}
+	})
+
+	t.Run("source changed type after planning is refused", func(t *testing.T) {
+		root := t.TempDir()
+		alpha := makeSkillDir(t, root, "alpha")
+		h := skillTestHarness("four", filepath.Join(t.TempDir(), "skills"))
+		cell := skillCell(t, "alpha", h, root)
+		plan, err := SkillLinks([]SkillCell{cell})
+		if err != nil {
+			t.Fatalf("SkillLinks: %v", err)
+		}
+		if err := os.RemoveAll(alpha); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, alpha)
+
+		var stdout, stderr bytes.Buffer
+		err = CreateSkillLinks(plan.ToCreate, testContext(t), &stdout, &stderr)
+		want := "link source is no longer a directory: " + alpha + "; no changes made"
+		if err == nil || err.Error() != want {
+			t.Fatalf("CreateSkillLinks error = %v, want %q", err, want)
+		}
+		if _, statErr := os.Lstat(cell.Target); statErr == nil {
+			t.Error("target symlink should not have been created")
+		}
+	})
 }
 
 func TestApplySkillsCreatesBeforeRemoving(t *testing.T) {
