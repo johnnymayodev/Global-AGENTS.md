@@ -294,62 +294,6 @@ func pickerFlowPlain(ctx harness.Context, p ui.Prompter, showAll bool) error {
 	return nil
 }
 
-// pickerFlowTUI runs the full-screen wizard: the first-run setup when the
-// source file is missing, the selection, and the plan review, as one
-// alternate-screen program.
-func pickerFlowTUI(ctx harness.Context, p ui.Prompter, showAll bool) error {
-	exists, err := harness.SourceFileExists(ctx)
-	if err != nil {
-		return err
-	}
-	visible, err := harness.Visible(ctx, showAll)
-	if err != nil {
-		return err
-	}
-	current, err := managedSelection(visible, ctx)
-	if err != nil {
-		return err
-	}
-
-	if len(visible) == 0 {
-		// Nothing to pick: still run first-run setup, then print the table.
-		ok, _, err := p.EnsureSourceFile(ctx)
-		if err != nil || !ok {
-			return err
-		}
-		table, err := ui.RenderTable(visible, ctx, current, -1)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintln(p.Out, table)
-		fmt.Fprintln(p.Out, "No supported harnesses were detected. Use `agent-links --all` to show every supported target.")
-		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
-		return nil
-	}
-
-	result, err := ui.RunWizard(ui.WizardFlow{
-		Harnesses: visible,
-		Ctx:       ctx,
-		Initial:   current,
-		Setup:     !exists,
-		Review:    reconcileReview(visible, ctx, p),
-	}, p.TTY)
-	if err != nil {
-		return err
-	}
-	for _, notice := range result.Notices {
-		fmt.Fprintln(p.Out, notice)
-	}
-	if line := wizardOutcome(result); line != "" {
-		fmt.Fprintln(p.Out, line)
-	}
-	if result.Applied {
-		fmt.Fprintln(p.Out, result.Review.Summary)
-		return result.Review.Apply()
-	}
-	return nil
-}
-
 // listFlow prints the detected (or all) harnesses as a table.
 func listFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
 	harnesses, err := harness.Visible(ctx, showAll)
