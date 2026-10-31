@@ -254,6 +254,21 @@ func TestTargetState(t *testing.T) {
 		}
 		return path
 	}
+	symlinkIn := func(target, name string) string {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, path); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	// Build the path by hand: filepath.Join would clean away the "." and ".."
+	// segments this case is meant to exercise.
+	sep := string(filepath.Separator)
+	dotted := dir + sep + "nested" + sep + ".." + sep + "." + sep + "source.md"
 
 	cases := []struct {
 		name   string
@@ -264,6 +279,10 @@ func TestTargetState(t *testing.T) {
 		{name: "managed", target: symlink(source, "managed"), want: Managed},
 		{name: "unrelated symlink", target: symlink("/elsewhere/file", "unrelated"), want: Symlink},
 		{name: "relative symlink", target: symlink("other", "relative"), want: Symlink},
+		{name: "relative managed symlink", target: symlink("source.md", "relative-managed"), want: Managed},
+		{name: "relative managed symlink from a subdirectory", target: symlinkIn("../source.md", "nested/relative-managed"), want: Managed},
+		{name: "relative symlink to a different file", target: symlinkIn("../other.md", "nested/relative-other"), want: Symlink},
+		{name: "managed symlink with dot segments", target: symlink(dotted, "dotted"), want: Managed},
 		{name: "regular file", target: writeFile("file.md"), want: Path},
 	}
 	subdir := filepath.Join(dir, "subdir")

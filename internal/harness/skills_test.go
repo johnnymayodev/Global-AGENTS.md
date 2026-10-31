@@ -188,6 +188,42 @@ func TestVisibleSkillsCountsManagedLinks(t *testing.T) {
 	}
 }
 
+func TestVisibleSkillsCountsRelativeManagedLinks(t *testing.T) {
+	home := t.TempDir()
+	ctx, err := BuildContext(lookupFrom(map[string]string{"HOME": home, "PATH": ""}), t.TempDir())
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	source := filepath.Join(ctx.SourceSkillsDir, "git-release")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("# git\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	codexSkills := filepath.Join(home, ".agents", "skills")
+	if err := os.MkdirAll(codexSkills, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Relative links are resolved against the skills directory before comparing.
+	relative := filepath.Join("..", "..", ".global-agents", "skills", "git-release")
+	if err := os.Symlink(relative, filepath.Join(codexSkills, "git-release")); err != nil {
+		t.Fatal(err)
+	}
+	unrelated := filepath.Join("..", "..", "elsewhere", "git-release")
+	if err := os.Symlink(unrelated, filepath.Join(codexSkills, "other")); err != nil {
+		t.Fatal(err)
+	}
+
+	visible, err := VisibleSkills(ctx, false)
+	if err != nil {
+		t.Fatalf("VisibleSkills: %v", err)
+	}
+	if len(visible) != 1 || visible[0].ID != "codex" {
+		t.Fatalf("VisibleSkills = %v, want only codex", visible)
+	}
+}
+
 func TestVisibleSkillsIgnoresUnrelatedLinks(t *testing.T) {
 	home := t.TempDir()
 	ctx, err := BuildContext(lookupFrom(map[string]string{"HOME": home, "PATH": ""}), t.TempDir())
