@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 )
 
 func writeFile(t *testing.T, path, contents string) {
@@ -189,4 +190,39 @@ func TestValidateName(t *testing.T) {
 			t.Errorf("ValidateName(%q) = nil, want an error", name)
 		}
 	}
+}
+
+// FuzzValidateName checks the safety contract behind ValidateName: a name is
+// either rejected or is exactly one ordinary path component that cannot escape
+// a skills root or disrupt terminal output. Seeds mirror TestValidateName.
+func FuzzValidateName(f *testing.F) {
+	for _, name := range []string{"git-release", "pdf_tools", "skill.name", "A", "..hidden", "技能"} {
+		f.Add(name)
+	}
+	for _, name := range []string{"", ".", "..", "/abs", "a/b", `a\b`, "../escape", "\x1b[31m", "a\nb", "a\tb"} {
+		f.Add(name)
+	}
+
+	f.Fuzz(func(t *testing.T, name string) {
+		if err := ValidateName(name); err != nil {
+			return
+		}
+		if name == "" || name == "." || name == ".." {
+			t.Fatalf("ValidateName(%q) accepted a special path component", name)
+		}
+		if strings.ContainsAny(name, `/\`) {
+			t.Fatalf("ValidateName(%q) accepted a path separator", name)
+		}
+		if filepath.IsAbs(name) || filepath.Base(name) != name {
+			t.Fatalf("ValidateName(%q) accepted more than one path component", name)
+		}
+		if strings.ContainsRune(name, 0) {
+			t.Fatalf("ValidateName(%q) accepted NUL", name)
+		}
+		for _, r := range name {
+			if unicode.IsControl(r) {
+				t.Fatalf("ValidateName(%q) accepted control character %U", name, r)
+			}
+		}
+	})
 }
