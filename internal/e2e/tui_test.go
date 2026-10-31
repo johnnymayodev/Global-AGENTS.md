@@ -125,10 +125,7 @@ func requirePython(t *testing.T) {
 }
 
 func pythonAvailable() bool {
-	if exec.Command("python3", "-c", "import os, pty, select, termios; assert os.waitstatus_to_exitcode(0) == 0").Run() != nil {
-		return false
-	}
-	return true
+	return exec.Command("python3", "-c", "import os, pty, select, termios; assert os.waitstatus_to_exitcode(0) == 0").Run() == nil
 }
 
 // scriptForms are the BSD and util-linux spellings of `script`. Each entry
