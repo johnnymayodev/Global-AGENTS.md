@@ -199,7 +199,14 @@ func RenderTable(harnesses []harness.Harness, ctx harness.Context, selected map[
 	if len(rows) == 0 {
 		rows = append(rows, []string{"", "(none detected)", "", ""})
 	}
+	return renderBorderedTable("Global instructions: "+ctx.SourceFile, headers, rows, nil), nil
+}
 
+// renderBorderedTable renders a title, a blank line, the headers and rows
+// inside a bordered table, and then any extra lines (a legend or notes). It
+// returns the result without a trailing newline. Callers build the title,
+// extras, and any placeholder row.
+func renderBorderedTable(title string, headers []string, rows [][]string, extra []string) string {
 	widths := make([]int, len(headers))
 	for i, header := range headers {
 		widths[i] = cellWidth(header)
@@ -228,7 +235,7 @@ func RenderTable(harnesses []harness.Harness, ctx harness.Context, selected map[
 	}
 
 	lines := []string{
-		"Global instructions: " + ctx.SourceFile,
+		title,
 		"",
 		border("┌", "┬", "┐"),
 		renderRow(headers),
@@ -238,7 +245,8 @@ func RenderTable(harnesses []harness.Harness, ctx harness.Context, selected map[
 		lines = append(lines, renderRow(row))
 	}
 	lines = append(lines, border("└", "┴", "┘"))
-	return strings.Join(lines, "\n"), nil
+	lines = append(lines, extra...)
+	return strings.Join(lines, "\n")
 }
 
 // cellWidth is the number of terminal columns a cell occupies. Lipgloss

@@ -306,45 +306,7 @@ func RenderSkillsTable(matrix SkillsMatrix, ctx harness.Context, selected map[st
 		rows = append(rows, empty)
 	}
 
-	widths := make([]int, len(headers))
-	for i, header := range headers {
-		widths[i] = cellWidth(header)
-	}
-	for _, row := range rows {
-		for i, cell := range row {
-			if width := cellWidth(cell); width > widths[i] {
-				widths[i] = width
-			}
-		}
-	}
-
-	border := func(left, middle, right string) string {
-		segments := make([]string, len(widths))
-		for i, width := range widths {
-			segments[i] = strings.Repeat("─", width+2)
-		}
-		return left + strings.Join(segments, middle) + right
-	}
-	renderRow := func(cells []string) string {
-		padded := make([]string, len(cells))
-		for i, cell := range cells {
-			padded[i] = cell + strings.Repeat(" ", widths[i]-cellWidth(cell))
-		}
-		return "│ " + strings.Join(padded, " │ ") + " │"
-	}
-
-	lines := []string{
-		"Shared skills: " + ctx.SourceSkillsDir,
-		"",
-		border("┌", "┬", "┐"),
-		renderRow(headers),
-		border("├", "┼", "┤"),
-	}
-	for _, row := range rows {
-		lines = append(lines, renderRow(row))
-	}
-	lines = append(lines, border("└", "┴", "┘"))
-	lines = append(lines, "Legend: ✓ managed  · absent  ! conflict  – unavailable")
+	extra := []string{"Legend: ✓ managed  · absent  ! conflict  – unavailable"}
 
 	var notes []string
 	for _, skill := range matrix.Skills {
@@ -367,11 +329,10 @@ func RenderSkillsTable(matrix SkillsMatrix, ctx harness.Context, selected map[st
 		}
 	}
 	if len(notes) > 0 {
-		lines = append(lines, "")
-		lines = append(lines, "Notes:")
-		lines = append(lines, notes...)
+		extra = append(extra, "", "Notes:")
+		extra = append(extra, notes...)
 	}
-	return strings.Join(lines, "\n"), nil
+	return renderBorderedTable("Shared skills: "+ctx.SourceSkillsDir, headers, rows, extra), nil
 }
 
 func minWidth(a, b int) int {
