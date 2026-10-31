@@ -238,7 +238,7 @@ func launchFlowPlain(ctx harness.Context, p ui.Prompter, showAll bool) error {
 		case "1":
 			return pickerFlowPlain(ctx, p, showAll)
 		case "2":
-			return skillsFlowPlain(ctx, p, showAll)
+			return skillsFlow(ctx, p, showAll)
 		default:
 			fmt.Fprintln(p.Out, `Enter "1" to manage global instructions, "2" to manage global skills, or "q" to cancel.`)
 		}
@@ -562,34 +562,21 @@ func skillsFlowDispatch(ctx harness.Context, p ui.Prompter, inv skillsInvocation
 	return nil
 }
 
-// skillsFlow runs the interactive skills matrix.
+// skillsFlow runs the skills matrix, as a full-screen selection when a terminal
+// is available and as a read-only table otherwise.
 func skillsFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
-	skills, err := skill.Discover(ctx.SourceSkillsDir)
+	matrix, visible, ok, err := loadSkillsMatrix(ctx, showAll)
 	if err != nil {
 		return err
 	}
-	if len(skills) == 0 {
+	if !ok {
 		printNoSkills(ctx, p.Out)
 		return nil
 	}
 
-	visible, err := harness.VisibleSkills(ctx, showAll)
-	if err != nil {
-		return err
-	}
-	matrix, err := buildSkillsMatrix(ctx, skills, visible)
-	if err != nil {
-		return err
-	}
-
 	if !p.Interactive {
-		table, err := ui.RenderSkillsTable(matrix, ctx, managedSkillSelection(matrix))
-		if err != nil {
+		if err := printSkillsMatrix(p.Out, matrix, ctx); err != nil {
 			return err
-		}
-		fmt.Fprintln(p.Out, table)
-		if len(visible) == 0 {
-			fmt.Fprintln(p.Out, "No supported harnesses were detected. Use `agent-links skills --all` to show every supported target.")
 		}
 		fmt.Fprintln(p.Out, "Interactive selection needs a terminal; no changes made.")
 		fmt.Fprintln(p.Out, "Cancelled. No changes made.")
@@ -597,12 +584,9 @@ func skillsFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
 	}
 
 	if len(visible) == 0 {
-		table, err := ui.RenderSkillsTable(matrix, ctx, managedSkillSelection(matrix))
-		if err != nil {
+		if err := printSkillsMatrix(p.Out, matrix, ctx); err != nil {
 			return err
 		}
-		fmt.Fprintln(p.Out, table)
-		fmt.Fprintln(p.Out, "No supported harnesses were detected. Use `agent-links skills --all` to show every supported target.")
 		fmt.Fprintln(p.Out, "No changes made.")
 		return nil
 	}
@@ -619,63 +603,51 @@ func skillsFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
 	return finishWizard(result, p.Out)
 }
 
-// skillsFlowPlain prints the read-only skills matrix when no terminal is
-// available.
-func skillsFlowPlain(ctx harness.Context, p ui.Prompter, showAll bool) error {
-	skills, err := skill.Discover(ctx.SourceSkillsDir)
-	if err != nil {
-		return err
-	}
-	if len(skills) == 0 {
-		printNoSkills(ctx, p.Out)
-		return nil
-	}
-	visible, err := harness.VisibleSkills(ctx, showAll)
-	if err != nil {
-		return err
-	}
-	matrix, err := buildSkillsMatrix(ctx, skills, visible)
-	if err != nil {
-		return err
-	}
-	table, err := ui.RenderSkillsTable(matrix, ctx, managedSkillSelection(matrix))
-	if err != nil {
-		return err
-	}
-	fmt.Fprintln(p.Out, table)
-	if len(visible) == 0 {
-		fmt.Fprintln(p.Out, "No supported harnesses were detected. Use `agent-links skills --all` to show every supported target.")
-	}
-	fmt.Fprintln(p.Out, "Interactive selection needs a terminal; no changes made.")
-	fmt.Fprintln(p.Out, "Cancelled. No changes made.")
-	return nil
-}
-
 // skillsListFlow prints the read-only skills matrix.
 func skillsListFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
-	skills, err := skill.Discover(ctx.SourceSkillsDir)
+	matrix, _, ok, err := loadSkillsMatrix(ctx, showAll)
 	if err != nil {
 		return err
 	}
-	if len(skills) == 0 {
+	if !ok {
 		printNoSkills(ctx, p.Out)
 		return nil
 	}
+	return printSkillsMatrix(p.Out, matrix, ctx)
+}
+
+// loadSkillsMatrix discovers the shared skills, resolves the visible harnesses,
+// and classifies every cell. ok is false when there are no shared skills to
+// show; the caller owns the empty-state guidance.
+func loadSkillsMatrix(ctx harness.Context, showAll bool) (ui.SkillsMatrix, []harness.Harness, bool, error) {
+	skills, err := skill.Discover(ctx.SourceSkillsDir)
+	if err != nil {
+		return ui.SkillsMatrix{}, nil, false, err
+	}
+	if len(skills) == 0 {
+		return ui.SkillsMatrix{}, nil, false, nil
+	}
 	visible, err := harness.VisibleSkills(ctx, showAll)
 	if err != nil {
-		return err
+		return ui.SkillsMatrix{}, nil, false, err
 	}
 	matrix, err := buildSkillsMatrix(ctx, skills, visible)
 	if err != nil {
-		return err
+		return ui.SkillsMatrix{}, nil, false, err
 	}
+	return matrix, visible, true, nil
+}
+
+// printSkillsMatrix writes the table and, when no harness is visible, the hint
+// that names the flag widening the selection.
+func printSkillsMatrix(out io.Writer, matrix ui.SkillsMatrix, ctx harness.Context) error {
 	table, err := ui.RenderSkillsTable(matrix, ctx, managedSkillSelection(matrix))
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(p.Out, table)
-	if len(visible) == 0 {
-		fmt.Fprintln(p.Out, "No supported harnesses were detected. Use `agent-links skills --all` to show every supported target.")
+	fmt.Fprintln(out, table)
+	if len(matrix.Harnesses) == 0 {
+		fmt.Fprintln(out, "No supported harnesses were detected. Use `agent-links skills --all` to show every supported target.")
 	}
 	return nil
 }

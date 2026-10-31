@@ -289,6 +289,34 @@ func TestSkillsEmptyDoesNotCreateRoot(t *testing.T) {
 	}
 }
 
+func TestLaunchSkillsPlainMatchesSkillsCommand(t *testing.T) {
+	home := t.TempDir()
+	skillsWithManagedAndConflict(t, home)
+
+	run := func(args []string, stdin string) string {
+		t.Helper()
+		var stdout, stderr bytes.Buffer
+		code := cli.RunWith(args, cli.Options{
+			LookupEnv: lookupEnv(scenarioEnv(home)),
+			Cwd:       home,
+			Stdin:     strings.NewReader(stdin),
+			Stdout:    &stdout,
+			Stderr:    &stderr,
+		})
+		if code != 0 {
+			t.Fatalf("exit code = %d, want 0\nstdout:\n%s\nstderr:\n%s", code, stdout.String(), stderr.String())
+		}
+		return stdout.String()
+	}
+
+	const menuPrefix = "What do you want to manage?\n" +
+		"Choose: [1] global instructions (AGENTS.md)  [2] global skills (SKILL.md)  [q] cancel: "
+	want := menuPrefix + run([]string{"skills"}, "")
+	if got := run(nil, "2\n"); got != want {
+		t.Errorf("launch choice 2 mismatch\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
 func TestModesDoNotRequireEachOther(t *testing.T) {
 	t.Run("skills mode works without AGENTS.md", func(t *testing.T) {
 		home := t.TempDir()
