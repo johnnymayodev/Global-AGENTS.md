@@ -118,8 +118,17 @@ func RunWith(args []string, opts Options) int {
 		runErr = linkFlow(ctx, prompt)
 	case len(args) == 1 && args[0] == "unlink":
 		runErr = unlinkFlow(ctx, prompt)
-	case args[0] == "skills" && validSkillsArgs(args[1:]):
-		runErr = skillsFlowDispatch(ctx, prompt, args[1:])
+	case args[0] == "skills":
+		inv, ok := parseSkillsInvocation(args[1:])
+		if !ok {
+			fmt.Fprintln(opts.Stdout, usage)
+			return 2
+		}
+		if inv.mode == skillsModeHelp {
+			fmt.Fprintln(opts.Stdout, usage)
+			return 0
+		}
+		runErr = skillsFlowDispatch(ctx, prompt, inv)
 	default:
 		fmt.Fprintln(opts.Stdout, usage)
 		return 2
@@ -130,22 +139,74 @@ func RunWith(args []string, opts Options) int {
 	return 0
 }
 
-// validSkillsArgs reports whether the arguments after "skills" name a known
-// subcommand combination.
-func validSkillsArgs(args []string) bool {
-	switch {
-	case len(args) == 0:
-		return true
-	case len(args) == 1:
-		return args[0] == "--all" || args[0] == "--list"
-	case len(args) == 2:
-		if args[0] == "--list" {
-			return args[1] == "--all"
-		}
-		return args[0] == "link" || args[0] == "unlink"
-	default:
-		return false
+// skillsMode identifies the flow one parsed "skills" invocation selects.
+type skillsMode int
+
+const (
+	skillsModeManage skillsMode = iota
+	skillsModeList
+	skillsModeLink
+	skillsModeUnlink
+	skillsModeHelp
+)
+
+// skillsInvocation is one parsed "skills" command line.
+type skillsInvocation struct {
+	mode    skillsMode
+	showAll bool
+	name    string
+}
+
+// parseSkillsInvocation parses the arguments after "skills" once, so the
+// dispatch never reinterprets them. It owns every flag: -h/--help in the
+// command position selects help, --all widens a manage or list invocation, and
+// a flag where a skill name belongs is invalid usage. Only "--" before the name
+// lets the name begin with "-". skill.ValidateName remains authoritative for
+// the name itself.
+func parseSkillsInvocation(args []string) (skillsInvocation, bool) {
+	if len(args) == 0 {
+		return skillsInvocation{mode: skillsModeManage}, true
 	}
+	switch args[0] {
+	case "-h", "--help":
+		if len(args) == 1 {
+			return skillsInvocation{mode: skillsModeHelp}, true
+		}
+	case "--all":
+		if len(args) == 1 {
+			return skillsInvocation{mode: skillsModeManage, showAll: true}, true
+		}
+	case "--list":
+		inv := skillsInvocation{mode: skillsModeList}
+		rest := args[1:]
+		if len(rest) > 0 && rest[0] == "--all" {
+			inv.showAll = true
+			rest = rest[1:]
+		}
+		if len(rest) == 0 {
+			return inv, true
+		}
+	case "link", "unlink":
+		inv := skillsInvocation{mode: skillsModeLink}
+		if args[0] == "unlink" {
+			inv.mode = skillsModeUnlink
+		}
+		rest := args[1:]
+		terminated := false
+		if len(rest) > 0 && rest[0] == "--" {
+			terminated = true
+			rest = rest[1:]
+		}
+		if len(rest) != 1 {
+			return skillsInvocation{}, false
+		}
+		if !terminated && strings.HasPrefix(rest[0], "-") {
+			return skillsInvocation{}, false
+		}
+		inv.name = rest[0]
+		return inv, true
+	}
+	return skillsInvocation{}, false
 }
 
 func fail(stderr io.Writer, err error) int {
@@ -479,21 +540,17 @@ func skillsReconcileReview(matrix ui.SkillsMatrix, ctx harness.Context, p ui.Pro
 	}
 }
 
-// skillsFlowDispatcher routes the arguments after "skills".
-func skillsFlowDispatch(ctx harness.Context, p ui.Prompter, args []string) error {
-	switch {
-	case len(args) == 0:
-		return skillsFlow(ctx, p, false)
-	case len(args) == 1 && args[0] == "--all":
-		return skillsFlow(ctx, p, true)
-	case len(args) == 1 && args[0] == "--list":
-		return skillsListFlow(ctx, p, false)
-	case len(args) == 2 && args[0] == "--list":
-		return skillsListFlow(ctx, p, true)
-	case len(args) == 2 && args[0] == "link":
-		return skillsLinkFlow(ctx, p, args[1])
-	case len(args) == 2 && args[0] == "unlink":
-		return skillsUnlinkFlow(ctx, p, args[1])
+// skillsFlowDispatch runs the parsed skills invocation.
+func skillsFlowDispatch(ctx harness.Context, p ui.Prompter, inv skillsInvocation) error {
+	switch inv.mode {
+	case skillsModeManage:
+		return skillsFlow(ctx, p, inv.showAll)
+	case skillsModeList:
+		return skillsListFlow(ctx, p, inv.showAll)
+	case skillsModeLink:
+		return skillsLinkFlow(ctx, p, inv.name)
+	case skillsModeUnlink:
+		return skillsUnlinkFlow(ctx, p, inv.name)
 	}
 	return nil
 }

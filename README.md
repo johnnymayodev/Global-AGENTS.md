@@ -134,7 +134,7 @@ agent-links --version                print the version
   file, directory, or unrelated symlink aborts the whole plan before any change.
 - `skills unlink <skill>` removes that skill's managed links. The source skill
   does not have to exist. Absolute names, path separators, `.`, and `..` are
-  rejected.
+  rejected. Put `--` before a skill name that begins with `-`.
 - `--version` (or `-v`) prints `agent-links v<version>` without reading `HOME`.
   Release binaries report the version pinned in `run.sh`, a `go install
   ...@latest` build reports its module version, and any other local build
