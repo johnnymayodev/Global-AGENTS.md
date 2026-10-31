@@ -298,14 +298,21 @@ func launchFlowTUI(ctx harness.Context, p ui.Prompter, showAll bool) error {
 	if err != nil {
 		return err
 	}
+	return finishWizard(result, p.Out)
+}
+
+// finishWizard prints the wizard's notices and outcome, then applies the
+// reviewed plan when the wizard applied one. It owns the post-wizard output
+// order shared by the interactive flows.
+func finishWizard(result ui.WizardResult, out io.Writer) error {
 	for _, notice := range result.Notices {
-		fmt.Fprintln(p.Out, notice)
+		fmt.Fprintln(out, notice)
 	}
 	if line := wizardOutcome(result); line != "" {
-		fmt.Fprintln(p.Out, line)
+		fmt.Fprintln(out, line)
 	}
 	if result.Applied {
-		fmt.Fprintln(p.Out, result.Review.Summary)
+		fmt.Fprintln(out, result.Review.Summary)
 		return result.Review.Apply()
 	}
 	return nil
@@ -609,17 +616,7 @@ func skillsFlow(ctx harness.Context, p ui.Prompter, showAll bool) error {
 	if err != nil {
 		return err
 	}
-	for _, notice := range result.Notices {
-		fmt.Fprintln(p.Out, notice)
-	}
-	if line := wizardOutcome(result); line != "" {
-		fmt.Fprintln(p.Out, line)
-	}
-	if result.Applied {
-		fmt.Fprintln(p.Out, result.Review.Summary)
-		return result.Review.Apply()
-	}
-	return nil
+	return finishWizard(result, p.Out)
 }
 
 // skillsFlowPlain prints the read-only skills matrix when no terminal is
