@@ -123,6 +123,11 @@ jobs:
           for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
             sh build.sh "$target"
           done
+      - name: Stage bootstrap script
+        run: |
+          mkdir -p dist
+          cp run.sh dist/run.sh
+          chmod 0755 dist/run.sh
       - name: Generate checksums
         working-directory: dist
         run: |
@@ -184,12 +189,14 @@ jobs:
             dist/checksums-darwin-x64.txt
             dist/checksums-linux-arm64.txt
             dist/checksums-linux-x64.txt
+            dist/run.sh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-assets
           path: |
             dist/agent-links-*
             dist/checksums-*.txt
+            dist/run.sh
 
   publish:
     needs: build
@@ -219,6 +226,16 @@ jobs:
               exit 1
             fi
           done
+      - name: Verify staged bootstrap script
+        run: |
+          if [ ! -f artifacts/run.sh ]; then
+            printf 'error: missing bootstrap script artifact\n' >&2
+            exit 1
+          fi
+          if ! cmp -s artifacts/run.sh run.sh; then
+            printf 'error: staged run.sh does not match the release tag\n' >&2
+            exit 1
+          fi
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -246,11 +263,15 @@ jobs:
           for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
             set -- "$@" "artifacts/agent-links-$target" "artifacts/checksums-$target.txt"
           done
+          set -- "$@" artifacts/run.sh
           gh release upload "$RELEASE_TAG" "$@" --clobber
           expected_assets="$(
-            for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
-              printf '%s\n' "agent-links-$target" "checksums-$target.txt"
-            done | sort
+            {
+              for target in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+                printf '%s\n' "agent-links-$target" "checksums-$target.txt"
+              done
+              printf '%s\n' "run.sh"
+            } | sort
           )"
           remote_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | sort)"
           missing=''
