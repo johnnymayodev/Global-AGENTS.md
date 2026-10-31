@@ -163,7 +163,7 @@ func (m *wizard) renderSkillsMatrix(t theme, inner int) string {
 				continue
 			}
 			symbol := matrixSymbol(cell, m.matrixSelected[cell.Key()])
-			cellText := padRight(symbol, colWidth)
+			var cellText string
 			switch {
 			case col == m.matrixCol && row == m.matrixRow:
 				cellText = t.accent.Render(padRight(symbol, colWidth))
