@@ -35,6 +35,7 @@ const systemPath = "/usr/bin:/bin"
 var (
 	repoRoot = mustRepoRoot()
 	runSh    = filepath.Join(repoRoot, "run.sh")
+	buildSh  = filepath.Join(repoRoot, "build.sh")
 	version  = mustReadVersion(runSh)
 
 	// hashToolAvailable mirrors run.sh's sha256sum/shasum requirement; tests
@@ -1235,6 +1236,44 @@ func TestRestoresInteractiveInputFromTTY(t *testing.T) {
 		t.Errorf("asset stdin marker = %q, want \"tty\"", contents)
 	}
 	f.assertClean()
+}
+
+// TestBuildShHelp keeps build.sh's usage output and argument errors stable:
+// -h/--help print usage and exit 0 before the platform is detected, while an
+// unknown target still lists the supported targets and exits 2.
+func TestBuildShHelp(t *testing.T) {
+	runBuildSh := func(args ...string) result {
+		t.Helper()
+		cmd := exec.Command("sh", append([]string{buildSh}, args...)...)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		return result{status: exitStatus(cmd.Run()), stdout: stdout.String(), stderr: stderr.String()}
+	}
+
+	for _, flag := range []string{"-h", "--help"} {
+		got := runBuildSh(flag)
+		if got.status != 0 {
+			t.Errorf("%s status = %d, want 0; stderr:\n%s", flag, got.status, got.stderr)
+		}
+		if !strings.Contains(got.stdout, "Usage: sh build.sh [target] [outfile]") {
+			t.Errorf("%s stdout = %q, want the usage block", flag, got.stdout)
+		}
+		if got.stderr != "" {
+			t.Errorf("%s stderr = %q, want empty", flag, got.stderr)
+		}
+	}
+
+	got := runBuildSh("--bogus")
+	if got.status != 2 {
+		t.Errorf("--bogus status = %d, want 2", got.status)
+	}
+	if !strings.Contains(got.stderr, "unsupported target: --bogus") {
+		t.Errorf("--bogus stderr = %q, want an unsupported target error", got.stderr)
+	}
+	if !strings.Contains(got.stderr, "supported: darwin-x64, darwin-arm64, linux-x64, linux-arm64") {
+		t.Errorf("--bogus stderr = %q, want the supported-target list", got.stderr)
+	}
 }
 
 // pickScriptForm returns the argument builder for the local script(1) dialect:
