@@ -119,6 +119,12 @@ macOS and Linux on x64 and ARM64 are supported. The static Linux binaries also
 run on musl-based distributions such as Alpine, and WSL uses the Linux assets.
 Native Windows is not supported.
 
+## Security
+
+The install path, cache, and linking behavior are covered by
+[`SECURITY.md`](SECURITY.md), including how to report a vulnerability privately
+and what checksums and artifact attestations do and do not prove.
+
 ## Usage
 
 With no arguments in a terminal, `agent-links` opens the interactive wizard. It
@@ -160,8 +166,9 @@ agent-links --version                print the version
   skipped with a reason. A missing skill or a destination that already holds a
   file, directory, or unrelated symlink aborts the whole plan before any change.
 - `skills unlink <skill>` removes that skill's managed links. The source skill
-  does not have to exist. Absolute names, path separators, `.`, and `..` are
-  rejected. Put `--` before a skill name that begins with `-`.
+  does not have to exist. Absolute names, path separators, `.`, `..`, and
+  control characters are rejected. Put `--` before a skill name that begins
+  with `-`.
 - `--version` (or `-v`) prints `agent-links v<version>` without reading `HOME`.
   Release binaries report the version pinned in `run.sh`, a `go install
   ...@latest` build reports its module version, and any other local build
