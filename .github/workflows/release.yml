@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   validate:
@@ -194,6 +194,8 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       # `gh release create --generate-notes` reads the tag and commit history.
       - uses: actions/checkout@v4
