@@ -371,6 +371,8 @@ gofmt -l .
 go vet ./...
 go test ./...       # unit, golden, runner, and PTY end-to-end tests
 go build ./...
+# optional coverage summary
+go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | tail -1
 ```
 
 The PTY end-to-end tests use `python3` or `script(1)` and skip when neither is
