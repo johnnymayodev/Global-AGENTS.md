@@ -811,7 +811,7 @@ func matrixPlanCells(matrix ui.SkillsMatrix) []plan.SkillCell {
 				HarnessName: cell.HarnessName,
 				Source:      cell.Source,
 				Target:      cell.Target,
-				Unavailable: harness.SkillUnavailableReason(h, skillName),
+				Unavailable: cell.Unavailable,
 			})
 		}
 	}
