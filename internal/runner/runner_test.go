@@ -95,6 +95,9 @@ func requireHashTool(t *testing.T) {
 
 const curlStub = `#!/bin/sh
 set -eu
+# Record each invocation's arguments on one line so tests can assert on the
+# curl flags without parsing the loop below.
+printf '%s\n' "$*" >> "$CURL_ARGS_CAPTURE"
 output=""
 url=""
 while [ "$#" -gt 0 ]; do
@@ -175,6 +178,7 @@ type fixture struct {
 	binDir   string
 	homeDir  string
 	curlURLs string
+	curlArgs string
 	argsPath string
 	pwdPath  string
 	assetExe string
@@ -197,6 +201,7 @@ func newFixture(t *testing.T) *fixture {
 		binDir:   filepath.Join(tempDir, "bin"),
 		homeDir:  filepath.Join(tempDir, "home"),
 		curlURLs: filepath.Join(tempDir, "curl-urls"),
+		curlArgs: filepath.Join(tempDir, "curl-args"),
 		argsPath: filepath.Join(tempDir, "asset-args"),
 		pwdPath:  filepath.Join(tempDir, "asset-pwd"),
 		assetExe: filepath.Join(tempDir, "asset-exe"),
@@ -223,6 +228,7 @@ func newFixture(t *testing.T) *fixture {
 	env["TMPDIR"] = f.tempDir
 	env["HOME"] = f.homeDir
 	env["CURL_URL_CAPTURE"] = f.curlURLs
+	env["CURL_ARGS_CAPTURE"] = f.curlArgs
 	env["CURL_SOURCE_FILE"] = f.assetSrc
 	env["ASSET_EXE_CAPTURE"] = f.assetExe
 	env["ARGS_CAPTURE"] = f.argsPath
@@ -259,12 +265,14 @@ func (f *fixture) downloadCalls() int {
 	return len(strings.Split(contents, "\n"))
 }
 
-// resetDownloads clears the curl URL capture and the executed-asset marker,
+// resetDownloads clears the curl captures and the executed-asset marker,
 // so a second run can prove it neither downloaded nor skipped execution.
 func (f *fixture) resetDownloads() {
 	f.t.Helper()
-	if err := os.WriteFile(f.curlURLs, nil, 0o644); err != nil {
-		f.t.Fatalf("reset curl capture: %v", err)
+	for _, path := range []string{f.curlURLs, f.curlArgs} {
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			f.t.Fatalf("reset curl capture: %v", err)
+		}
 	}
 	if err := os.Remove(f.assetExe); err != nil && !errors.Is(err, os.ErrNotExist) {
 		f.t.Fatalf("reset asset capture: %v", err)
@@ -431,6 +439,19 @@ func releaseURL(target string) string {
 
 func checksumURL(target string) string {
 	return fmt.Sprintf("https://github.com/%s/releases/download/v%s/checksums-%s.txt", repository, version, target)
+}
+
+// curlOption reports whether args contain flag, optionally followed by value.
+func curlOption(args []string, flag, value string) bool {
+	for i, arg := range args {
+		if arg != flag {
+			continue
+		}
+		if value == "" || (i+1 < len(args) && args[i+1] == value) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPlatformDetection(t *testing.T) {
@@ -628,6 +649,49 @@ func TestMissingChecksumEntryIsRejected(t *testing.T) {
 		t.Errorf("asset was executed without a checksum entry: %v", err)
 	}
 	f.assertNoCacheFiles()
+	f.assertClean()
+}
+
+// TestDownloadsAreBoundedInTimeAndSize asserts both the asset and checksum
+// downloads keep the HTTPS-only, retry, and connect-timeout flags while adding
+// a total timeout and size cap.
+func TestDownloadsAreBoundedInTimeAndSize(t *testing.T) {
+	requireHashTool(t)
+	f := newFixture(t)
+	f.withChecksum("agent-links-" + hostTarget())
+
+	got := f.run(nil, nil, "")
+
+	if got.status != 0 {
+		t.Fatalf("status = %d, stderr:\n%s", got.status, got.stderr)
+	}
+	lines := strings.Split(strings.TrimSpace(f.readCapture(f.curlArgs)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("curl invocations = %d, want 2 (asset and checksum):\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	options := [][2]string{
+		{"--max-time", "120"},
+		{"--max-filesize", "20000000"},
+		{"--retry", "2"},
+		{"--retry-delay", "1"},
+		{"--connect-timeout", "10"},
+		{"--proto", "=https"},
+		{"--proto-redir", "=https"},
+	}
+	flags := []string{"--fail", "--location", "--silent", "--show-error"}
+	for _, line := range lines {
+		args := strings.Fields(line)
+		for _, option := range options {
+			if !curlOption(args, option[0], option[1]) {
+				t.Errorf("curl call is missing %s %s:\n%s", option[0], option[1], line)
+			}
+		}
+		for _, flag := range flags {
+			if !curlOption(args, flag, "") {
+				t.Errorf("curl call is missing %s:\n%s", flag, line)
+			}
+		}
+	}
 	f.assertClean()
 }
 
