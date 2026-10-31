@@ -7,7 +7,7 @@ set -eu
 #   curl -fsSL https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/main/run.sh | bash
 #
 # For a fixed release, replace `main` with the release tag (for example
-# `v0.5.3`) or a commit SHA. The version= line below pins the release assets.
+# `vX.Y.Z`) or a commit SHA. The version= line below pins the release assets.
 #
 # Downloads the released standalone executable for this machine, verifies its
 # SHA-256 checksum, and caches it under

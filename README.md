@@ -24,11 +24,13 @@ changing `PATH`. The convenience command always runs the current script on
 curl -fsSL https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/main/run.sh | bash
 ```
 
-To run a fixed release instead, pin the tag (or a commit SHA) in the URL. The
-script's own `version=` then downloads that release's assets:
+To run a fixed release instead, pin the tag (or a commit SHA) in the URL. A tag
+must match the `version=` line in the `run.sh` it points at; the version
+currently pinned on `main` is in [`run.sh`](run.sh). The script's own `version=`
+then downloads that release's assets:
 
 ```sh
-tag=v0.5.3
+tag=vX.Y.Z   # replace with the release tag
 curl -fsSL "https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/$tag/run.sh" | bash
 ```
 
@@ -149,6 +151,8 @@ agent-links skills [--all]           manage shared skills for detected (or all) 
 agent-links skills --list [--all]    print the shared skills matrix
 agent-links skills link <skill>      preview and confirm linking one skill
 agent-links skills unlink <skill>    preview and confirm unlinking one skill
+agent-links skills --help            print usage
+agent-links --help                   print usage
 agent-links --version                print the version
 ```
 
@@ -169,6 +173,8 @@ agent-links --version                print the version
   does not have to exist. Absolute names, path separators, `.`, `..`, and
   control characters are rejected. Put `--` before a skill name that begins
   with `-`.
+- `--help` (or `-h`) prints usage to stdout and exits `0`; `skills --help` (or
+  `skills -h`) does the same for the skills commands.
 - `--version` (or `-v`) prints `agent-links v<version>` without reading `HOME`.
   Release binaries report the version pinned in `run.sh`, a `go install
   ...@latest` build reports its module version, and any other local build
