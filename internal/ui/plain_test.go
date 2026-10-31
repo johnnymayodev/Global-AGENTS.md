@@ -272,6 +272,42 @@ func TestCopyToSourceFileReadFailureLeavesNoCanonicalFile(t *testing.T) {
 	}
 }
 
+func TestRenderBorderedTable(t *testing.T) {
+	t.Run("uneven cell widths", func(t *testing.T) {
+		got := renderBorderedTable("Title", []string{"A", "Long header"},
+			[][]string{{"x", "y"}, {"wide cell", "z"}}, []string{"note"})
+		want := strings.Join([]string{
+			"Title",
+			"",
+			"┌───────────┬─────────────┐",
+			"│ A         │ Long header │",
+			"├───────────┼─────────────┤",
+			"│ x         │ y           │",
+			"│ wide cell │ z           │",
+			"└───────────┴─────────────┘",
+			"note",
+		}, "\n")
+		if got != want {
+			t.Errorf("renderBorderedTable() =\n%s\nwant:\n%s", got, want)
+		}
+	})
+
+	t.Run("no rows", func(t *testing.T) {
+		got := renderBorderedTable("Title", []string{"A", "B"}, nil, nil)
+		want := strings.Join([]string{
+			"Title",
+			"",
+			"┌───┬───┐",
+			"│ A │ B │",
+			"├───┼───┤",
+			"└───┴───┘",
+		}, "\n")
+		if got != want {
+			t.Errorf("renderBorderedTable() =\n%s\nwant:\n%s", got, want)
+		}
+	})
+}
+
 type failingReader struct {
 	err error
 }
