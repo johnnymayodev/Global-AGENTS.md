@@ -6,6 +6,9 @@ set -eu
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/main/run.sh | bash
 #
+# For a fixed release, replace `main` with the release tag (for example
+# `v0.5.3`) or a commit SHA. The version= line below pins the release assets.
+#
 # Downloads the released standalone executable for this machine, verifies its
 # SHA-256 checksum, and caches it under
 # ${XDG_CACHE_HOME:-$HOME/.cache}/agent-links/v<version>/<target>/ so later

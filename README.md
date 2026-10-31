@@ -17,11 +17,25 @@ previews planned changes, and asks for confirmation before applying them.
 ### One-shot runner (recommended)
 
 Run the release-pinned bootstrap without cloning, installing a runtime, or
-changing `PATH`:
+changing `PATH`. The convenience command always runs the current script on
+`main`:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/main/run.sh | bash
 ```
+
+To run a fixed release instead, pin the tag (or a commit SHA) in the URL. The
+script's own `version=` then downloads that release's assets:
+
+```sh
+tag=v0.5.3
+curl -fsSL "https://raw.githubusercontent.com/johnnymayodev/Global-AGENTS.md/$tag/run.sh" | bash
+```
+
+New releases also attach their `run.sh` at
+`https://github.com/johnnymayodev/Global-AGENTS.md/releases/download/vX.Y.Z/run.sh`,
+covered by the same artifact attestation as the binaries. Older releases do not
+include that asset; use the tag URL for them.
 
 The runner downloads `agent-links-<target>` and its matching
 `checksums-<target>.txt` from the version pinned in `run.sh`, verifies the
@@ -55,12 +69,25 @@ binary, it is not an independent signature. A local writer who can replace both
 cache files can replace the binary, so the private cache directory and its
 ownership checks are the trust boundary.
 
+The bootstrap script is code that runs before any asset is verified.
+`main/run.sh` is mutable, so the convenience command executes whatever is on
+`main` at that moment. A tag URL or commit SHA pins the script; tags can be moved
+by someone with repository write access, so use a commit SHA when the exact
+script matters. When the script comes from a release asset, download it, verify
+the attestation, and then run it:
+
+```sh
+curl -fsSLO https://github.com/johnnymayodev/Global-AGENTS.md/releases/download/vX.Y.Z/run.sh
+gh attestation verify run.sh --repo johnnymayodev/Global-AGENTS.md
+sh run.sh
+```
+
 Release assets also carry GitHub artifact attestations, which are the stronger,
-independently verifiable signal: they tie each binary and checksum file to the
-release workflow, the commit it ran from, and this repository. The checksums
-remain useful for offline or simple verification, but they are not a signature
-and do not prove where an asset came from. See [Verify a
-release](#verify-a-release).
+independently verifiable signal: they tie each binary, checksum file, and the
+bootstrap script to the release workflow, the commit it ran from, and this
+repository. The checksums remain useful for offline or simple verification, but
+they are not a signature and do not prove where an asset came from. See [Verify
+a release](#verify-a-release).
 
 ### Install or build from source
 
@@ -345,9 +372,10 @@ available. CI builds all four release targets with `sh build.sh <target>`.
 ## Releases
 
 The release workflow cross-compiles the four supported targets on one Linux
-runner, creates per-platform SHA-256 checksum files, attests every binary and
-checksum file with GitHub artifact attestations, and attaches both files to the
-version tag's GitHub release. `v0.x` tags are published as prereleases.
+runner, creates per-platform SHA-256 checksum files, stages the pinned
+`run.sh`, attests every binary, checksum file, and the bootstrap script with
+GitHub artifact attestations, and attaches them all to the version tag's GitHub
+release. `v0.x` tags are published as prereleases.
 
 Before a release, update the pinned `version=` in `run.sh` and push the matching
 `vX.Y.Z` tag. The workflow rejects a tag that does not match `run.sh`, and the
@@ -361,8 +389,8 @@ Download a release asset, then verify its attestation with the GitHub CLI:
 gh attestation verify agent-links-<target> --repo johnnymayodev/Global-AGENTS.md
 ```
 
-The same command works for `checksums-<target>.txt`. A successful check proves
-the file was built by this repository's release workflow from the tagged commit;
-a modified or substituted asset fails verification. Verifying the checksum file
-alone does not authenticate the binaries it lists, so verify each asset you rely
-on.
+The same command works for `checksums-<target>.txt` and `run.sh`. A successful
+check proves the file was built by this repository's release workflow from the
+tagged commit; a modified or substituted asset fails verification. Verifying
+the checksum file alone does not authenticate the binaries it lists, so verify
+each asset you rely on.

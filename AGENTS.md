@@ -218,17 +218,18 @@ Release procedure:
    ```
 
 6. Wait for the Release workflow to finish and confirm the GitHub release
-   contains all four `agent-links-<target>` binaries and their
-   `checksums-<target>.txt` files.
+   contains all four `agent-links-<target>` binaries, their
+   `checksums-<target>.txt` files, and the tagged `run.sh`.
 
 The `validate` job runs the CI checks and enforces that the pushed tag is a
 semantic version matching `v` + `run.sh`'s `version=`, strictly newer than the
 latest release, and on `main`; any mismatch fails before building. The `build`
-job cross-compiles all four targets on one Linux runner, verifies each binary's
-architecture and every per-target SHA-256 checksum file, and creates
-build-provenance attestations. The `publish` job re-verifies the downloaded
-artifacts, uploads them to a draft release created with `--generate-notes`,
-checks the remote asset set, and then publishes it. Tags starting with `v0.` are
+job cross-compiles all four targets on one Linux runner, stages `run.sh` from
+the tag, verifies each binary's architecture and every per-target SHA-256
+checksum file, and creates build-provenance attestations. The `publish` job
+re-verifies the downloaded artifacts and that the staged `run.sh` matches the
+tag, uploads them to a draft release created with `--generate-notes`, checks
+the remote asset set, and then publishes it. Tags starting with `v0.` are
 published as prereleases automatically; `v1.0.0` and later are normal releases.
 
 The bootstrap does not work for a new version until that version's release
