@@ -268,6 +268,22 @@ func AssertSourceFile(ctx Context) error {
 	return nil
 }
 
+// linkPointsAt reports whether the symlink at linkPath points at source. A
+// relative destination is resolved against the link's own directory and both
+// sides are cleaned, so semantically identical spellings compare equal.
+// Resolution is lexical only: symlinks inside the destination are never
+// followed, so a canonical source that is itself a symlink keeps its identity.
+func linkPointsAt(linkPath, source string) (bool, error) {
+	dest, err := os.Readlink(linkPath)
+	if err != nil {
+		return false, err
+	}
+	if !filepath.IsAbs(dest) {
+		dest = filepath.Join(filepath.Dir(linkPath), dest)
+	}
+	return filepath.Clean(dest) == filepath.Clean(source), nil
+}
+
 // TargetState classifies the filesystem entry at target relative to source,
 // which may be a file or a directory.
 func TargetState(target, source string) (State, error) {
@@ -280,11 +296,11 @@ func TargetState(target, source string) (State, error) {
 	}
 
 	if info.Mode()&fs.ModeSymlink != 0 {
-		dest, err := os.Readlink(target)
+		managed, err := linkPointsAt(target, source)
 		if err != nil {
 			return "", err
 		}
-		if dest == source {
+		if managed {
 			return Managed, nil
 		}
 		return Symlink, nil
@@ -459,14 +475,14 @@ func hasManagedSkillLink(h Harness, ctx Context) (bool, error) {
 			continue
 		}
 		target := filepath.Join(h.SkillsDir, entry.Name())
-		dest, err := os.Readlink(target)
+		managed, err := linkPointsAt(target, filepath.Join(ctx.SourceSkillsDir, entry.Name()))
 		if err != nil {
 			if MissingPath(err) {
 				continue
 			}
 			return false, err
 		}
-		if dest == filepath.Join(ctx.SourceSkillsDir, entry.Name()) {
+		if managed {
 			return true, nil
 		}
 	}
