@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/johnnymayodev/Global-AGENTS.md/internal/harness"
+	"github.com/johnnymayodev/Global-AGENTS.md/internal/skill"
 )
 
 // MatrixCell is one skill/harness cell in the skills picker.
@@ -19,13 +20,8 @@ type MatrixCell struct {
 	Unavailable string
 }
 
-// CellKey is the stable identity of one matrix cell.
-func CellKey(skillName, harnessID string) string {
-	return skillName + "\x00" + harnessID
-}
-
 // Key is the cell's stable identity.
-func (c MatrixCell) Key() string { return CellKey(c.Skill, c.HarnessID) }
+func (c MatrixCell) Key() string { return skill.CellKey(c.Skill, c.HarnessID) }
 
 // SkillsMatrix is the prepared data behind the skills picker.
 type SkillsMatrix struct {
@@ -37,7 +33,7 @@ type SkillsMatrix struct {
 
 // Cell returns the cell for one skill and harness.
 func (m SkillsMatrix) Cell(skillName, harnessID string) (MatrixCell, bool) {
-	cell, ok := m.Cells[CellKey(skillName, harnessID)]
+	cell, ok := m.Cells[skill.CellKey(skillName, harnessID)]
 	return cell, ok
 }
 

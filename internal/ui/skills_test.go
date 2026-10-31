@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/johnnymayodev/Global-AGENTS.md/internal/harness"
+	"github.com/johnnymayodev/Global-AGENTS.md/internal/skill"
 )
 
 func testMatrix(t *testing.T) (*SkillsMatrix, harness.Context) {
@@ -185,16 +186,16 @@ func TestMatrixToggleIndependent(t *testing.T) {
 	m.Update(keySpace()) // alpha/alpha
 	m.Update(keyRight())
 	m.Update(keySpace()) // alpha/beta only
-	if got := m.MatrixSelection(); len(got) != 2 || !got[CellKey("alpha", "alpha")] || !got[CellKey("alpha", "beta")] {
+	if got := m.MatrixSelection(); len(got) != 2 || !got[skill.CellKey("alpha", "alpha")] || !got[skill.CellKey("alpha", "beta")] {
 		t.Fatalf("selection = %v, want alpha/alpha and alpha/beta", got)
 	}
-	if m.MatrixSelection()[CellKey("beta", "alpha")] {
+	if m.MatrixSelection()[skill.CellKey("beta", "alpha")] {
 		t.Fatal("toggling one cell selected another")
 	}
 
 	m.Update(keyDown())
 	m.Update(keySpace()) // beta/beta
-	if got := m.MatrixSelection(); !got[CellKey("beta", "beta")] || got[CellKey("beta", "alpha")] {
+	if got := m.MatrixSelection(); !got[skill.CellKey("beta", "beta")] || got[skill.CellKey("beta", "alpha")] {
 		t.Fatalf("selection = %v, want beta/beta only on the second row", got)
 	}
 	if !strings.Contains(viewText(m), "✓") {
@@ -204,10 +205,10 @@ func TestMatrixToggleIndependent(t *testing.T) {
 
 func TestMatrixSelectAllSkipsConflictsAndUnavailable(t *testing.T) {
 	matrix, ctx := testMatrix(t)
-	alpha := matrix.Cells[CellKey("alpha", "alpha")]
+	alpha := matrix.Cells[skill.CellKey("alpha", "alpha")]
 	alpha.State = harness.Path
 	matrix.Cells[alpha.Key()] = alpha
-	beta := matrix.Cells[CellKey("beta", "beta")]
+	beta := matrix.Cells[skill.CellKey("beta", "beta")]
 	beta.Unavailable = "reserved"
 	matrix.Cells[beta.Key()] = beta
 
@@ -217,7 +218,7 @@ func TestMatrixSelectAllSkipsConflictsAndUnavailable(t *testing.T) {
 	if selection[alpha.Key()] || selection[beta.Key()] {
 		t.Fatalf("selection = %v, conflicts and unavailable cells must be skipped", selection)
 	}
-	if !selection[CellKey("alpha", "beta")] || !selection[CellKey("beta", "alpha")] {
+	if !selection[skill.CellKey("alpha", "beta")] || !selection[skill.CellKey("beta", "alpha")] {
 		t.Fatalf("selection = %v, want the four selectable cells", selection)
 	}
 
@@ -229,7 +230,7 @@ func TestMatrixSelectAllSkipsConflictsAndUnavailable(t *testing.T) {
 
 func TestMatrixReservedManagedCellCanBeDeselected(t *testing.T) {
 	matrix, ctx := testMatrix(t)
-	cell := matrix.Cells[CellKey("alpha", "alpha")]
+	cell := matrix.Cells[skill.CellKey("alpha", "alpha")]
 	cell.State = harness.Managed
 	cell.Unavailable = "reserved"
 	matrix.Cells[cell.Key()] = cell
@@ -302,7 +303,7 @@ func TestMatrixReviewAndBack(t *testing.T) {
 	if m.step != stepReview {
 		t.Fatalf("step = %v, want review", m.step)
 	}
-	if len(reviewed) != 1 || !reviewed[CellKey("alpha", "alpha")] {
+	if len(reviewed) != 1 || !reviewed[skill.CellKey("alpha", "alpha")] {
 		t.Fatalf("reviewed = %v", reviewed)
 	}
 
@@ -310,7 +311,7 @@ func TestMatrixReviewAndBack(t *testing.T) {
 	if cmd != nil || m.cancelled || m.step != stepMatrix {
 		t.Fatalf("esc should return to the matrix; cmd = %v, step = %v", cmd != nil, m.step)
 	}
-	if !m.MatrixSelection()[CellKey("alpha", "alpha")] {
+	if !m.MatrixSelection()[skill.CellKey("alpha", "alpha")] {
 		t.Fatal("selection was lost on the way back")
 	}
 
@@ -339,7 +340,7 @@ func TestLaunchMatrixEscReturnsToMode(t *testing.T) {
 	if m.matrixRow != 1 || m.matrixCol != 1 {
 		t.Errorf("matrix cursor = (%d, %d), want (1, 1)", m.matrixRow, m.matrixCol)
 	}
-	if !m.MatrixSelection()[CellKey("beta", "beta")] {
+	if !m.MatrixSelection()[skill.CellKey("beta", "beta")] {
 		t.Error("matrix selection was lost on the way back")
 	}
 
@@ -473,13 +474,13 @@ func TestMatrixHelp(t *testing.T) {
 
 func TestSkillsTable(t *testing.T) {
 	matrix, ctx := testMatrix(t)
-	cell := matrix.Cells[CellKey("alpha", "alpha")]
+	cell := matrix.Cells[skill.CellKey("alpha", "alpha")]
 	cell.State = harness.Managed
 	matrix.Cells[cell.Key()] = cell
-	conflict := matrix.Cells[CellKey("beta", "beta")]
+	conflict := matrix.Cells[skill.CellKey("beta", "beta")]
 	conflict.State = harness.Path
 	matrix.Cells[conflict.Key()] = conflict
-	unavailable := matrix.Cells[CellKey("beta", "gamma")]
+	unavailable := matrix.Cells[skill.CellKey("beta", "gamma")]
 	unavailable.Unavailable = "reserved"
 	matrix.Cells[unavailable.Key()] = unavailable
 
@@ -517,10 +518,10 @@ func TestSkillsTableEmpty(t *testing.T) {
 
 func TestMatrixStatusCounts(t *testing.T) {
 	matrix, ctx := testMatrix(t)
-	managed := matrix.Cells[CellKey("alpha", "alpha")]
+	managed := matrix.Cells[skill.CellKey("alpha", "alpha")]
 	managed.State = harness.Managed
 	matrix.Cells[managed.Key()] = managed
-	unselected := matrix.Cells[CellKey("beta", "beta")]
+	unselected := matrix.Cells[skill.CellKey("beta", "beta")]
 	unselected.State = harness.Managed
 	matrix.Cells[unselected.Key()] = unselected
 

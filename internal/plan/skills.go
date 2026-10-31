@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/johnnymayodev/Global-AGENTS.md/internal/harness"
+	"github.com/johnnymayodev/Global-AGENTS.md/internal/skill"
 )
 
 // SkillCell is one skill/harness pair in a skills plan.
@@ -19,12 +20,7 @@ type SkillCell struct {
 }
 
 // Key is the cell's stable identity across the UI and plan packages.
-func (c SkillCell) Key() string { return CellKey(c.Skill, c.HarnessID) }
-
-// CellKey returns the stable key for one skill/harness pair.
-func CellKey(skillName, harnessID string) string {
-	return skillName + "\x00" + harnessID
-}
+func (c SkillCell) Key() string { return skill.CellKey(c.Skill, c.HarnessID) }
 
 // SkillsPlan is the planned work for a set of skill/harness cells.
 type SkillsPlan struct {
