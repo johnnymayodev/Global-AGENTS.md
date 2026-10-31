@@ -14,7 +14,7 @@ set -eu
 # a glibc baseline and also run on musl-based distributions; the tool does no
 # DNS or user lookup, so static linking has no behavioral cost.
 
-script_dir="$(CDPATH= cd -P "$(dirname "$0")" && pwd)"
+script_dir="$(CDPATH='' cd -P "$(dirname "$0")" && pwd)"
 
 if ! command -v go >/dev/null 2>&1; then
   printf 'error: Go is required to build agent-links\n' >&2

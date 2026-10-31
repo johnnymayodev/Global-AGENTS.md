@@ -49,6 +49,9 @@ temp_asset=""
 temp_sums=""
 temp_in_cache=0
 
+# `trap cleanup 0` runs this at exit; shellcheck cannot see trap-invoked
+# functions and reports the body as unreachable (SC2317).
+# shellcheck disable=SC2317
 cleanup() {
   if [ -n "$temp_asset" ]; then
     rm -f "$temp_asset"
