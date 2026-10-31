@@ -337,8 +337,9 @@ new link with either name is blocked for Claude only. An existing managed link
 with a reserved name can still be selected for cleanup.
 
 Applying a plan creates all approved links before removing any managed link. If
-a creation fails, no managed links are removed. Every destination is
-re-checked immediately before it is changed.
+a creation fails, no managed links are removed. Each destination is
+re-checked immediately before each change, but the check and the change are not
+a single atomic operation.
 
 ## Cross-discovery
 

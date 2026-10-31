@@ -295,6 +295,9 @@ func removeTarget(item linkTarget, ctx harness.Context, stdout io.Writer) error 
 	}
 	switch state {
 	case harness.Managed:
+		// The re-check above and this removal are not atomic: another process
+		// could replace the managed symlink with a regular file in between, and
+		// this call would then delete that file.
 		if err := os.Remove(item.Target); err != nil {
 			return err
 		}
