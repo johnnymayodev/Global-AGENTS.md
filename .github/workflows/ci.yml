@@ -20,6 +20,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Verify module checksums
+        if: runner.os == 'Linux'
+        run: go mod verify
+      - name: Check module tidiness
+        if: runner.os == 'Linux'
+        run: go mod tidy -diff
       - name: Check formatting
         run: |
           unformatted="$(gofmt -l .)"
