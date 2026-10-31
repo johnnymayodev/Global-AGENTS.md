@@ -17,7 +17,7 @@ import (
 	"github.com/johnnymayodev/Global-AGENTS.md/internal/ui"
 )
 
-// usage is printed for --help and unknown arguments.
+// usage is printed to stdout for --help and to stderr for invalid usage.
 const usage = `usage:
   agent-links                          choose instructions or skills, then harnesses
   agent-links --all                    choose instructions or skills, then all harnesses
@@ -121,7 +121,7 @@ func RunWith(args []string, opts Options) int {
 	case args[0] == "skills":
 		inv, ok := parseSkillsInvocation(args[1:])
 		if !ok {
-			fmt.Fprintln(opts.Stdout, usage)
+			fmt.Fprintln(opts.Stderr, usage)
 			return 2
 		}
 		if inv.mode == skillsModeHelp {
@@ -130,7 +130,7 @@ func RunWith(args []string, opts Options) int {
 		}
 		runErr = skillsFlowDispatch(ctx, prompt, inv)
 	default:
-		fmt.Fprintln(opts.Stdout, usage)
+		fmt.Fprintln(opts.Stderr, usage)
 		return 2
 	}
 	if runErr != nil {

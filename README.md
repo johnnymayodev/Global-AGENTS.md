@@ -232,7 +232,7 @@ scriptable.
 | ---- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `0`  | Success. Also cancellation, a declined confirmation, a plan with nothing to do, and cancelling from the wizard's recoverable error screen. |
 | `1`  | Runtime or validation error: `HOME` missing or not absolute, malformed canonical file, refused overwrite, missing skill, destination conflict, non-empty removal without a terminal, or an I/O error. |
-| `2`  | Invalid command or argument combination; usage is printed.                                                                     |
+| `2`  | Invalid command or argument combination; usage is printed to stderr.                                                           |
 
 The one-shot runner passes the CLI's exit code through and adds runner-specific
 results:
