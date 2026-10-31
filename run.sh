@@ -175,7 +175,10 @@ cache_entry_valid() {
 }
 
 download() {
+  # Release assets are a few MB; cap the total time and size so a stalled or
+  # misbehaving endpoint cannot hang the installer or exhaust disk space.
   if ! curl --fail --location --silent --show-error \
+    --max-time 120 --max-filesize 20000000 \
     --retry 2 --retry-delay 1 --connect-timeout 10 \
     --proto '=https' --proto-redir '=https' \
     --output "$1" "$base_url/$2"; then

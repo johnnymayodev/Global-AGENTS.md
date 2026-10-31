@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -28,6 +29,74 @@ func TestSelectedFilePath(t *testing.T) {
 			t.Errorf("SelectedFilePath(%q) = %q, want %q", tc.value, got, tc.want)
 		}
 	}
+}
+
+// FuzzSelectedFilePath checks the documented resolution contract: the result is
+// absolute and clean, "~" resolves to home, and "~/" expansion stays below home
+// unless the remainder explicitly walks upwards. Seeds mirror
+// TestSelectedFilePath; the mode selects home/cwd variants, including home "".
+func FuzzSelectedFilePath(f *testing.F) {
+	homes := []string{"/Users/johnny", "", "/Users/johnny/deep/.."}
+	cwds := []string{"/work/dir", "/", "/work/./dir"}
+
+	seeds := []struct {
+		value string
+		mode  uint8
+	}{
+		{value: "~"},
+		{value: "~/notes/AGENTS.md"},
+		{value: "  ~/notes/AGENTS.md  "},
+		{value: "notes/AGENTS.md"},
+		{value: "/etc/AGENTS.md"},
+		{value: "/etc/../AGENTS.md"},
+		{value: ""},
+		{value: "~~/notes"},
+		{value: "~", mode: 1},
+		{value: "~/notes/AGENTS.md", mode: 1},
+	}
+	for _, seed := range seeds {
+		f.Add(seed.value, seed.mode)
+	}
+
+	f.Fuzz(func(t *testing.T, value string, mode uint8) {
+		home := homes[int(mode)%len(homes)]
+		cwd := cwds[int(mode)%len(cwds)]
+		got := SelectedFilePath(value, home, cwd)
+
+		if !filepath.IsAbs(got) || filepath.Clean(got) != got {
+			t.Fatalf("SelectedFilePath(%q, %q, %q) = %q, want an absolute clean path", value, home, cwd, got)
+		}
+
+		trimmed := strings.TrimSpace(value)
+		switch {
+		case home != "" && trimmed == "~":
+			if want := filepath.Clean(home); got != want {
+				t.Fatalf("SelectedFilePath(%q, %q, %q) = %q, want %q", value, home, cwd, got, want)
+			}
+		case home != "" && (strings.HasPrefix(trimmed, "~/") || strings.HasPrefix(trimmed, "~"+string(filepath.Separator))):
+			rest := trimmed[2:]
+			if !hasParentComponent(rest) && !pathWithin(home, got) {
+				t.Fatalf("SelectedFilePath(%q, %q, %q) = %q escaped home %q without a %q component", value, home, cwd, got, filepath.Clean(home), "..")
+			}
+		}
+	})
+}
+
+func hasParentComponent(path string) bool {
+	for _, part := range strings.Split(path, string(filepath.Separator)) {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func pathWithin(base, target string) bool {
+	rel, err := filepath.Rel(filepath.Clean(base), target)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func TestCheckSelectedFile(t *testing.T) {

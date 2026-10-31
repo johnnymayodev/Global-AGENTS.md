@@ -35,6 +35,7 @@ const systemPath = "/usr/bin:/bin"
 var (
 	repoRoot = mustRepoRoot()
 	runSh    = filepath.Join(repoRoot, "run.sh")
+	buildSh  = filepath.Join(repoRoot, "build.sh")
 	version  = mustReadVersion(runSh)
 
 	// hashToolAvailable mirrors run.sh's sha256sum/shasum requirement; tests
@@ -94,6 +95,9 @@ func requireHashTool(t *testing.T) {
 
 const curlStub = `#!/bin/sh
 set -eu
+# Record each invocation's arguments on one line so tests can assert on the
+# curl flags without parsing the loop below.
+printf '%s\n' "$*" >> "$CURL_ARGS_CAPTURE"
 output=""
 url=""
 while [ "$#" -gt 0 ]; do
@@ -174,6 +178,7 @@ type fixture struct {
 	binDir   string
 	homeDir  string
 	curlURLs string
+	curlArgs string
 	argsPath string
 	pwdPath  string
 	assetExe string
@@ -196,6 +201,7 @@ func newFixture(t *testing.T) *fixture {
 		binDir:   filepath.Join(tempDir, "bin"),
 		homeDir:  filepath.Join(tempDir, "home"),
 		curlURLs: filepath.Join(tempDir, "curl-urls"),
+		curlArgs: filepath.Join(tempDir, "curl-args"),
 		argsPath: filepath.Join(tempDir, "asset-args"),
 		pwdPath:  filepath.Join(tempDir, "asset-pwd"),
 		assetExe: filepath.Join(tempDir, "asset-exe"),
@@ -222,6 +228,7 @@ func newFixture(t *testing.T) *fixture {
 	env["TMPDIR"] = f.tempDir
 	env["HOME"] = f.homeDir
 	env["CURL_URL_CAPTURE"] = f.curlURLs
+	env["CURL_ARGS_CAPTURE"] = f.curlArgs
 	env["CURL_SOURCE_FILE"] = f.assetSrc
 	env["ASSET_EXE_CAPTURE"] = f.assetExe
 	env["ARGS_CAPTURE"] = f.argsPath
@@ -258,12 +265,14 @@ func (f *fixture) downloadCalls() int {
 	return len(strings.Split(contents, "\n"))
 }
 
-// resetDownloads clears the curl URL capture and the executed-asset marker,
+// resetDownloads clears the curl captures and the executed-asset marker,
 // so a second run can prove it neither downloaded nor skipped execution.
 func (f *fixture) resetDownloads() {
 	f.t.Helper()
-	if err := os.WriteFile(f.curlURLs, nil, 0o644); err != nil {
-		f.t.Fatalf("reset curl capture: %v", err)
+	for _, path := range []string{f.curlURLs, f.curlArgs} {
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			f.t.Fatalf("reset curl capture: %v", err)
+		}
 	}
 	if err := os.Remove(f.assetExe); err != nil && !errors.Is(err, os.ErrNotExist) {
 		f.t.Fatalf("reset asset capture: %v", err)
@@ -430,6 +439,19 @@ func releaseURL(target string) string {
 
 func checksumURL(target string) string {
 	return fmt.Sprintf("https://github.com/%s/releases/download/v%s/checksums-%s.txt", repository, version, target)
+}
+
+// curlOption reports whether args contain flag, optionally followed by value.
+func curlOption(args []string, flag, value string) bool {
+	for i, arg := range args {
+		if arg != flag {
+			continue
+		}
+		if value == "" || (i+1 < len(args) && args[i+1] == value) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPlatformDetection(t *testing.T) {
@@ -627,6 +649,49 @@ func TestMissingChecksumEntryIsRejected(t *testing.T) {
 		t.Errorf("asset was executed without a checksum entry: %v", err)
 	}
 	f.assertNoCacheFiles()
+	f.assertClean()
+}
+
+// TestDownloadsAreBoundedInTimeAndSize asserts both the asset and checksum
+// downloads keep the HTTPS-only, retry, and connect-timeout flags while adding
+// a total timeout and size cap.
+func TestDownloadsAreBoundedInTimeAndSize(t *testing.T) {
+	requireHashTool(t)
+	f := newFixture(t)
+	f.withChecksum("agent-links-" + hostTarget())
+
+	got := f.run(nil, nil, "")
+
+	if got.status != 0 {
+		t.Fatalf("status = %d, stderr:\n%s", got.status, got.stderr)
+	}
+	lines := strings.Split(strings.TrimSpace(f.readCapture(f.curlArgs)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("curl invocations = %d, want 2 (asset and checksum):\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	options := [][2]string{
+		{"--max-time", "120"},
+		{"--max-filesize", "20000000"},
+		{"--retry", "2"},
+		{"--retry-delay", "1"},
+		{"--connect-timeout", "10"},
+		{"--proto", "=https"},
+		{"--proto-redir", "=https"},
+	}
+	flags := []string{"--fail", "--location", "--silent", "--show-error"}
+	for _, line := range lines {
+		args := strings.Fields(line)
+		for _, option := range options {
+			if !curlOption(args, option[0], option[1]) {
+				t.Errorf("curl call is missing %s %s:\n%s", option[0], option[1], line)
+			}
+		}
+		for _, flag := range flags {
+			if !curlOption(args, flag, "") {
+				t.Errorf("curl call is missing %s:\n%s", flag, line)
+			}
+		}
+	}
 	f.assertClean()
 }
 
@@ -1235,6 +1300,44 @@ func TestRestoresInteractiveInputFromTTY(t *testing.T) {
 		t.Errorf("asset stdin marker = %q, want \"tty\"", contents)
 	}
 	f.assertClean()
+}
+
+// TestBuildShHelp keeps build.sh's usage output and argument errors stable:
+// -h/--help print usage and exit 0 before the platform is detected, while an
+// unknown target still lists the supported targets and exits 2.
+func TestBuildShHelp(t *testing.T) {
+	runBuildSh := func(args ...string) result {
+		t.Helper()
+		cmd := exec.Command("sh", append([]string{buildSh}, args...)...)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		return result{status: exitStatus(cmd.Run()), stdout: stdout.String(), stderr: stderr.String()}
+	}
+
+	for _, flag := range []string{"-h", "--help"} {
+		got := runBuildSh(flag)
+		if got.status != 0 {
+			t.Errorf("%s status = %d, want 0; stderr:\n%s", flag, got.status, got.stderr)
+		}
+		if !strings.Contains(got.stdout, "Usage: sh build.sh [target] [outfile]") {
+			t.Errorf("%s stdout = %q, want the usage block", flag, got.stdout)
+		}
+		if got.stderr != "" {
+			t.Errorf("%s stderr = %q, want empty", flag, got.stderr)
+		}
+	}
+
+	got := runBuildSh("--bogus")
+	if got.status != 2 {
+		t.Errorf("--bogus status = %d, want 2", got.status)
+	}
+	if !strings.Contains(got.stderr, "unsupported target: --bogus") {
+		t.Errorf("--bogus stderr = %q, want an unsupported target error", got.stderr)
+	}
+	if !strings.Contains(got.stderr, "supported: darwin-x64, darwin-arm64, linux-x64, linux-arm64") {
+		t.Errorf("--bogus stderr = %q, want the supported-target list", got.stderr)
+	}
 }
 
 // pickScriptForm returns the argument builder for the local script(1) dialect:

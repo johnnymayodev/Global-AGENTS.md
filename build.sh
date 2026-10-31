@@ -3,16 +3,29 @@ set -eu
 
 # Cross-compiles the agent-links binary.
 #
-# Usage:
-#   sh build.sh [target] [outfile]
-#
-# target is one of the four release targets (default: this machine's platform):
-# darwin-x64, darwin-arm64, linux-x64, linux-arm64. outfile defaults to
-# dist/agent-links-<target> in the repository.
+# target is one of the four release targets (default: this machine's platform).
+# outfile defaults to dist/agent-links-<target> in the repository.
 #
 # CGO_ENABLED=0 produces fully static Linux binaries, so they do not depend on
 # a glibc baseline and also run on musl-based distributions; the tool does no
 # DNS or user lookup, so static linking has no behavioral cost.
+
+usage() {
+  cat <<'EOF'
+Usage: sh build.sh [target] [outfile]
+
+target is one of the four release targets (default: this machine's platform):
+darwin-x64, darwin-arm64, linux-x64, linux-arm64. outfile defaults to
+dist/agent-links-<target> in the repository.
+EOF
+}
+
+case "${1:-}" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+esac
 
 script_dir="$(CDPATH='' cd -P "$(dirname "$0")" && pwd)"
 

@@ -369,7 +369,9 @@ go test -coverprofile=coverage.out ./... && go tool cover -func=coverage.out | t
 ```
 
 The PTY end-to-end tests use `python3` or `script(1)` and skip when neither is
-available. CI builds all four release targets with `sh build.sh <target>`.
+available. CI asserts that at least one of those drivers works before it runs
+the suite, so a runner-image change cannot silently remove the interactive
+coverage. CI builds all four release targets with `sh build.sh <target>`.
 
 ## Releases
 
