@@ -40,6 +40,20 @@ jobs:
             exit 1
           fi
       - run: go vet ./...
+      - name: Require a PTY driver for end-to-end tests
+        run: |
+          # internal/e2e skips when no PTY driver exists, so assert here that
+          # the runner still has one; probe the same two drivers the tests use.
+          if python3 -c 'import os, pty, select, termios; assert os.waitstatus_to_exitcode(0) == 0'; then
+            printf 'PTY driver: python3 pty.fork()\n'
+            exit 0
+          fi
+          if script -q /dev/null true </dev/null || script -qec 'true' /dev/null </dev/null; then
+            printf 'PTY driver: script(1)\n'
+            exit 0
+          fi
+          printf 'error: neither python3 nor script(1) can drive a PTY; the end-to-end tests would skip\n' >&2
+          exit 1
       - run: go test ./...
       - name: Run tests with the race detector
         if: runner.os == 'Linux'
